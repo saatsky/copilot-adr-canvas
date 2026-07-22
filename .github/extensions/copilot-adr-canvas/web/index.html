@@ -1,0 +1,882 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Copilot ADR Canvas</title>
+  <style>
+    * { box-sizing: border-box; }
+
+    :root {
+      --app-bg: var(--background-color-default, #ffffff);
+      --app-surface: var(--background-color-default, #ffffff);
+      --app-text: var(--text-color-default, #1f2328);
+      --app-muted: var(--text-color-muted, #656d76);
+      --app-border: var(--border-color-default, #d1d9e0);
+      --app-focus: var(--color-focus-outline, #0969da);
+      --app-row-hover: rgba(99, 110, 123, 0.08);
+      --app-primary-bg: var(--true-color-blue-muted, #dbeafe);
+      --app-primary-border: var(--true-color-blue, #0969da);
+    }
+
+    [data-theme-mode="dark"] {
+      --app-bg: #0d1117;
+      --app-surface: #0d1117;
+      --app-text: #e6edf3;
+      --app-muted: #8b949e;
+      --app-border: #30363d;
+      --app-focus: #2f81f7;
+      --app-row-hover: rgba(177, 186, 196, 0.12);
+      --app-primary-bg: #1f6feb33;
+      --app-primary-border: #2f81f7;
+    }
+
+    [data-theme-mode="light"] {
+      --app-bg: #ffffff;
+      --app-surface: #ffffff;
+      --app-text: #1f2328;
+      --app-muted: #656d76;
+      --app-border: #d1d9e0;
+      --app-focus: #0969da;
+      --app-row-hover: rgba(99, 110, 123, 0.08);
+      --app-primary-bg: #dbeafe;
+      --app-primary-border: #0969da;
+    }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+      background: var(--app-bg);
+      color: var(--app-text);
+      font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+      font-size: var(--text-body-medium, 14px);
+      line-height: var(--leading-body-medium, 20px);
+      padding: 10px;
+    }
+
+    .layout {
+      height: calc(100vh - 20px);
+      display: grid;
+      grid-template-rows: auto auto auto 1fr;
+      gap: 10px;
+    }
+
+    .box {
+      border: 1px solid var(--app-border);
+      border-radius: 10px;
+      background: var(--app-surface);
+    }
+
+    .header-box {
+      padding: 12px;
+    }
+
+    .title {
+      font-size: 26px;
+      font-weight: 600;
+      margin: 0;
+    }
+
+    .subtitle {
+      color: var(--app-muted);
+      margin-top: 4px;
+      font-size: 14px;
+    }
+
+    .toolbar-box {
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    input, select, button, textarea {
+      border: 1px solid var(--app-border);
+      border-radius: 8px;
+      background: var(--app-surface);
+      color: var(--app-text);
+      font: inherit;
+      padding: 8px 10px;
+    }
+
+    input { min-width: 280px; flex: 1; }
+    button { cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: default; }
+    .primary {
+      background: var(--app-primary-bg);
+      border-color: var(--app-primary-border);
+    }
+    .inline-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--app-muted);
+      user-select: none;
+    }
+    .inline-check input {
+      min-width: auto;
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      flex: 0 0 auto;
+    }
+
+    .table-box {
+      overflow: hidden;
+      display: block;
+    }
+
+    .table-head-note {
+      padding: 8px 12px;
+      color: var(--app-muted);
+      border-bottom: 1px solid var(--app-border);
+      font-size: 12px;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      max-height: 240px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--app-border);
+      padding: 8px 10px;
+      text-align: left;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      max-width: 420px;
+    }
+
+    th {
+      color: var(--app-muted);
+      font-size: 12px;
+      position: sticky;
+      top: 0;
+      background: var(--app-surface);
+      z-index: 1;
+    }
+
+    tr.row-item { cursor: pointer; }
+    tr.row-item:hover { background: var(--app-row-hover); }
+    tr.row-item.selected { outline: 2px solid var(--app-focus); outline-offset: -2px; }
+
+    .warn {
+      color: #b45309;
+      margin-right: 6px;
+      font-size: 12px;
+    }
+
+    .detail-box {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto auto auto 1fr;
+    }
+
+    .detail-head {
+      padding: 12px;
+      border-bottom: 1px solid var(--app-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .detail-title {
+      font-size: 30px;
+      font-weight: 700;
+      margin: 0;
+      line-height: 1.2;
+    }
+
+    .meta-line {
+      padding: 8px 12px;
+      color: var(--app-muted);
+      font-size: 13px;
+      border-bottom: 1px solid var(--app-border);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .lifecycle-line {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--app-border);
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .status {
+      margin-left: auto;
+      color: var(--app-muted);
+      font-size: 12px;
+    }
+    .status.ok { color: #1a7f37; }
+    .status.error { color: #d1242f; }
+
+    .content-area {
+      min-height: 0;
+      overflow: auto;
+      padding: 12px;
+    }
+
+    #editor {
+      width: 100%;
+      height: 100%;
+      min-height: 220px;
+      resize: vertical;
+      display: none;
+      font-family: var(--font-mono, "SFMono-Regular", Consolas, "Liberation Mono", monospace);
+      font-size: var(--text-code-inline, 12px);
+    }
+
+    #preview h1, #preview h2, #preview h3, #preview h4, #preview h5, #preview h6 {
+      margin: 14px 0 8px;
+      line-height: 1.3;
+    }
+    #preview p, #preview ul, #preview ol, #preview pre { margin: 0 0 10px; }
+    #preview ul, #preview ol { padding-left: 20px; }
+    #preview code {
+      font-family: var(--font-mono, "SFMono-Regular", Consolas, "Liberation Mono", monospace);
+      font-size: var(--text-code-inline, 12px);
+      background: rgba(140, 149, 159, 0.18);
+      border-radius: 4px;
+      padding: 1px 4px;
+    }
+    #preview pre {
+      border: 1px solid var(--app-border);
+      border-radius: 6px;
+      padding: 10px;
+      overflow: auto;
+    }
+    #preview pre code { background: transparent; padding: 0; border-radius: 0; }
+
+    dialog {
+      border: 1px solid var(--app-border);
+      border-radius: 8px;
+      padding: 14px;
+      width: 460px;
+      max-width: calc(100vw - 24px);
+      background: var(--app-surface);
+      color: var(--app-text);
+    }
+    dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
+    .dialog-body { display: grid; gap: 8px; }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <section class="box header-box">
+      <h1 class="title">Copilot ADR Canvas</h1>
+      <div id="rootPath" class="subtitle">docs/adr</div>
+    </section>
+
+    <section class="box toolbar-box">
+      <div class="row">
+        <input id="search" placeholder="Search name, title, status, content..." aria-label="Search ADRs">
+        <select id="statusFilter" aria-label="Filter by status">
+          <option value="">All statuses</option>
+          <option>Proposed</option>
+          <option>Accepted</option>
+          <option>Rejected</option>
+          <option>Deprecated</option>
+          <option>Superseded</option>
+        </select>
+        <button id="clearSearchButton" type="button">Clear Search</button>
+      </div>
+      <div class="row">
+        <select id="themeSelect" aria-label="Theme">
+          <option value="auto">Theme: Auto</option>
+          <option value="light">Theme: Light</option>
+          <option value="dark">Theme: Dark</option>
+        </select>
+        <button id="newButton" type="button" class="primary">New ADR</button>
+        <button id="rescanButton" type="button">Rescan</button>
+        <button id="aiButton" type="button">AI Integration</button>
+        <label class="inline-check" for="includeNonAdrCheckbox">
+          <input id="includeNonAdrCheckbox" type="checkbox">
+          Include non-ADR markdown
+        </label>
+      </div>
+    </section>
+
+    <section class="box table-box">
+      <div class="table-head-note">ADR files</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>NAME</th>
+              <th>TITLE</th>
+              <th>STATUS</th>
+              <th>MODIFIED</th>
+              <th>SIZE</th>
+            </tr>
+          </thead>
+          <tbody id="listBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="box detail-box">
+      <div class="detail-head">
+        <h2 id="detailTitle" class="detail-title">No ADR selected</h2>
+        <div class="row">
+          <button id="editButton" type="button">Edit</button>
+          <button id="cancelEditButton" type="button">Cancel</button>
+          <button id="saveButton" type="button" class="primary">Save</button>
+        </div>
+      </div>
+      <div id="metaLine" class="meta-line">Select an ADR from the table.</div>
+      <div class="lifecycle-line">
+        <strong>Lifecycle status:</strong>
+        <select id="statusSelect" aria-label="Lifecycle status">
+          <option>Proposed</option>
+          <option>Accepted</option>
+          <option>Rejected</option>
+          <option>Deprecated</option>
+          <option>Superseded</option>
+        </select>
+        <button id="applyStatusButton" type="button">Update Status</button>
+        <span id="statusText" class="status"></span>
+      </div>
+      <div class="content-area">
+        <div id="preview"></div>
+        <textarea id="editor" placeholder="Edit ADR markdown"></textarea>
+      </div>
+    </section>
+  </div>
+
+  <dialog id="newDialog">
+    <form class="dialog-body">
+      <h3 style="margin: 0;">Create ADR</h3>
+      <input id="newTitle" placeholder="ADR title" required>
+      <select id="newStatus">
+        <option>Proposed</option>
+        <option>Accepted</option>
+        <option>Rejected</option>
+        <option>Deprecated</option>
+        <option>Superseded</option>
+      </select>
+      <textarea id="newContext" rows="4" placeholder="Context"></textarea>
+      <textarea id="newOptions" rows="3" placeholder="Options (one per line or bullets)"></textarea>
+      <textarea id="newDecision" rows="4" placeholder="Decision"></textarea>
+      <div class="row" style="justify-content: end;">
+        <button id="cancelCreateButton" type="button">Cancel</button>
+        <button id="createButton" type="submit" class="primary">Create</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="aiDialog">
+    <div class="dialog-body">
+      <h3 style="margin: 0;">AI Integration</h3>
+      <p>Generate and maintain workflow guidance:</p>
+      <div class="row">
+        <button id="generateWorkflowButton" type="button" class="primary">Generate AI_ADR_WORKFLOW.md</button>
+      </div>
+      <p>Prompt examples (MarkdownADRManager style):</p>
+      <pre style="margin:0;padding:10px;border:1px solid var(--app-border);border-radius:6px;overflow:auto;">Create a new ADR for [decision] using:
+- filename ADR-NNNN-title-with-dashes.md
+- front matter (title, date, status)
+- sections: Status, Context, Options, Decision, Consequences
+
+Review docs/adr and suggest which Proposed ADRs should be Accepted, with rationale.
+
+Summarize decision history for [topic] citing ADR number and title.</pre>
+      <div class="row" style="justify-content: end;">
+        <button id="closeAiDialogButton" type="button">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script>
+    const state = {
+      rootPath: "",
+      items: [],
+      selectedPath: "",
+      content: "",
+      currentHash: "",
+      dirty: false,
+      isEditing: false,
+      theme: "auto",
+    };
+
+    const rootPathEl = document.getElementById("rootPath");
+    const listBodyEl = document.getElementById("listBody");
+    const tableWrapEl = document.querySelector(".table-wrap");
+    const tableHeadRowEl = document.querySelector("thead tr");
+    const detailTitleEl = document.getElementById("detailTitle");
+    const metaLineEl = document.getElementById("metaLine");
+    const statusTextEl = document.getElementById("statusText");
+    const previewEl = document.getElementById("preview");
+    const editorEl = document.getElementById("editor");
+
+    const searchEl = document.getElementById("search");
+    const statusFilterEl = document.getElementById("statusFilter");
+    const clearSearchButtonEl = document.getElementById("clearSearchButton");
+    const themeSelectEl = document.getElementById("themeSelect");
+    const newButtonEl = document.getElementById("newButton");
+    const rescanButtonEl = document.getElementById("rescanButton");
+    const aiButtonEl = document.getElementById("aiButton");
+    const includeNonAdrCheckboxEl = document.getElementById("includeNonAdrCheckbox");
+
+    const statusSelectEl = document.getElementById("statusSelect");
+    const applyStatusButtonEl = document.getElementById("applyStatusButton");
+    const editButtonEl = document.getElementById("editButton");
+    const cancelEditButtonEl = document.getElementById("cancelEditButton");
+    const saveButtonEl = document.getElementById("saveButton");
+
+    const newDialogEl = document.getElementById("newDialog");
+    const newTitleEl = document.getElementById("newTitle");
+    const newStatusEl = document.getElementById("newStatus");
+    const newContextEl = document.getElementById("newContext");
+    const newOptionsEl = document.getElementById("newOptions");
+    const newDecisionEl = document.getElementById("newDecision");
+    const cancelCreateButtonEl = document.getElementById("cancelCreateButton");
+    const createButtonEl = document.getElementById("createButton");
+
+    const aiDialogEl = document.getElementById("aiDialog");
+    const generateWorkflowButtonEl = document.getElementById("generateWorkflowButton");
+    const closeAiDialogButtonEl = document.getElementById("closeAiDialogButton");
+
+    async function request(url, options = {}) {
+      const response = await fetch(url, {
+        headers: { "Content-Type": "application/json" },
+        ...options,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+      return data;
+    }
+
+    function setStatus(message, type = "") {
+      statusTextEl.textContent = message || "";
+      statusTextEl.className = `status ${type}`.trim();
+    }
+
+    function formatDateTime(value) {
+      if (!value) return "-";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      return date.toLocaleString();
+    }
+
+    function formatSize(bytes) {
+      const value = Number(bytes || 0);
+      if (!Number.isFinite(value)) return "-";
+      if (value < 1024) return `${value} B`;
+      const kb = value / 1024;
+      if (kb < 1024) return `${kb.toFixed(1)} KB`;
+      return `${(kb / 1024).toFixed(1)} MB`;
+    }
+
+    function escapeHtml(input) {
+      return String(input)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function stripFrontMatter(markdown) {
+      const normalized = String(markdown || "").replace(/\r\n/g, "\n");
+      if (!normalized.startsWith("---\n")) return normalized;
+      const end = normalized.indexOf("\n---\n", 4);
+      if (end === -1) return normalized;
+      return normalized.slice(end + 5).replace(/^\n+/, "");
+    }
+
+    function safeHref(url) {
+      const value = String(url || "").trim();
+      if (
+        value.startsWith("#") ||
+        value.startsWith("/") ||
+        value.startsWith("./") ||
+        value.startsWith("../") ||
+        /^https?:\/\//i.test(value) ||
+        /^mailto:/i.test(value)
+      ) return value;
+      return "#";
+    }
+
+    function renderInline(text) {
+      let html = escapeHtml(text);
+      html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+      html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+      html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+      html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => {
+        const safe = safeHref(href);
+        const extra = safe === "#" ? "" : ' target="_blank" rel="noopener noreferrer"';
+        return `<a href="${escapeHtml(safe)}"${extra}>${label}</a>`;
+      });
+      return html;
+    }
+
+    function renderMarkdown(markdown) {
+      const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+      const out = [];
+      let inCode = false;
+      let inUl = false;
+      let inOl = false;
+      let paragraph = [];
+
+      const flushParagraph = () => {
+        if (!paragraph.length) return;
+        out.push(`<p>${renderInline(paragraph.join(" "))}</p>`);
+        paragraph = [];
+      };
+
+      const closeLists = () => {
+        if (inUl) { out.push("</ul>"); inUl = false; }
+        if (inOl) { out.push("</ol>"); inOl = false; }
+      };
+
+      for (const raw of lines) {
+        const line = raw;
+
+        if (/^```/.test(line)) {
+          flushParagraph();
+          closeLists();
+          if (!inCode) {
+            inCode = true;
+            out.push("<pre><code>");
+          } else {
+            inCode = false;
+            out.push("</code></pre>");
+          }
+          continue;
+        }
+
+        if (inCode) {
+          out.push(`${escapeHtml(line)}\n`);
+          continue;
+        }
+
+        const heading = line.match(/^(#{1,6})\s+(.+)$/);
+        if (heading) {
+          flushParagraph();
+          closeLists();
+          const level = heading[1].length;
+          out.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
+          continue;
+        }
+
+        const ul = line.match(/^\s*[-*+]\s+(.+)$/);
+        if (ul) {
+          flushParagraph();
+          if (!inUl) { closeLists(); inUl = true; out.push("<ul>"); }
+          out.push(`<li>${renderInline(ul[1])}</li>`);
+          continue;
+        }
+
+        const ol = line.match(/^\s*\d+\.\s+(.+)$/);
+        if (ol) {
+          flushParagraph();
+          if (!inOl) { closeLists(); inOl = true; out.push("<ol>"); }
+          out.push(`<li>${renderInline(ol[1])}</li>`);
+          continue;
+        }
+
+        if (line.trim() === "") {
+          flushParagraph();
+          closeLists();
+          continue;
+        }
+
+        paragraph.push(line.trim());
+      }
+
+      flushParagraph();
+      closeLists();
+      if (inCode) out.push("</code></pre>");
+      return out.join("");
+    }
+
+    function getSelectedItem() {
+      return state.items.find((item) => item.path === state.selectedPath) || null;
+    }
+
+    function updateDetailMeta() {
+      const item = getSelectedItem();
+      if (!item) {
+        metaLineEl.textContent = "Select an ADR from the table.";
+        return;
+      }
+      metaLineEl.textContent = `${item.path} | Status: ${item.status || "Unknown"} | Modified: ${formatDateTime(item.modified)} | Size: ${formatSize(item.sizeBytes)}`;
+    }
+
+    function setEditMode(nextMode) {
+      state.isEditing = Boolean(nextMode);
+      previewEl.style.display = state.isEditing ? "none" : "block";
+      editorEl.style.display = state.isEditing ? "block" : "none";
+      if (state.isEditing) editorEl.value = state.content;
+      updateControls();
+    }
+
+    function updateControls() {
+      const hasSelection = Boolean(state.selectedPath);
+      editButtonEl.disabled = !hasSelection || state.isEditing;
+      cancelEditButtonEl.disabled = !hasSelection || !state.isEditing;
+      saveButtonEl.disabled = !hasSelection || !state.isEditing || !state.dirty;
+      statusSelectEl.disabled = !hasSelection || state.isEditing;
+      applyStatusButtonEl.disabled = !hasSelection || state.isEditing;
+    }
+
+    function renderList() {
+      listBodyEl.innerHTML = "";
+      for (const item of state.items) {
+        const tr = document.createElement("tr");
+        tr.className = `row-item ${item.path === state.selectedPath ? "selected" : ""}`.trim();
+        tr.innerHTML = `
+          <td>${item.compatible ? "" : '<span class="warn" title="Not adr-tools compatible">⚠</span>'}${escapeHtml(item.name || item.path)}</td>
+          <td>${escapeHtml(item.displayTitle || item.title || item.path)}</td>
+          <td>${escapeHtml(item.status || "Unknown")}</td>
+          <td>${escapeHtml(formatDateTime(item.modified))}</td>
+          <td>${escapeHtml(formatSize(item.sizeBytes))}</td>
+        `;
+        tr.addEventListener("click", () => openFile(item.path));
+        listBodyEl.appendChild(tr);
+      }
+      adjustTableViewport();
+    }
+
+    function adjustTableViewport() {
+      if (!tableWrapEl || !tableHeadRowEl) return;
+      const rows = listBodyEl.querySelectorAll("tr");
+      const rowCount = rows.length;
+      const visibleRows = Math.min(5, rowCount);
+      const rowHeight = rows[0]?.getBoundingClientRect().height || 40;
+      const headHeight = tableHeadRowEl.getBoundingClientRect().height || 34;
+      const height = Math.ceil(headHeight + (rowHeight * visibleRows) + 2);
+      tableWrapEl.style.maxHeight = `${height}px`;
+      tableWrapEl.style.overflowY = rowCount > 5 ? "auto" : "hidden";
+    }
+
+    async function loadState() {
+      const data = await request("/api/state");
+      state.rootPath = data.rootPath;
+      rootPathEl.textContent = data.rootPathDisplay || "docs/adr";
+      searchEl.value = String(data.preferences?.search || "");
+      statusFilterEl.value = String(data.preferences?.statusFilter || "");
+      state.theme = String(data.preferences?.theme || "auto");
+      themeSelectEl.value = state.theme;
+      includeNonAdrCheckboxEl.checked = Boolean(data.preferences?.includeNonAdr);
+      applyTheme(state.theme, false);
+    }
+
+    async function refreshList() {
+      const query = new URLSearchParams({
+        q: searchEl.value.trim(),
+        status: statusFilterEl.value.trim(),
+        includeNonAdr: includeNonAdrCheckboxEl.checked ? "1" : "0",
+      });
+      const data = await request(`/api/list?${query.toString()}`);
+      state.items = data.items || [];
+      renderList();
+      updateDetailMeta();
+    }
+
+    async function openFile(path) {
+      if (!path) return;
+      if (state.isEditing && state.dirty && !confirm("Discard unsaved changes?")) return;
+
+      const data = await request(`/api/file?path=${encodeURIComponent(path)}`);
+      state.selectedPath = path;
+      state.content = data.content || "";
+      state.currentHash = String(data.hash || "");
+      state.dirty = false;
+
+      const item = state.items.find((x) => x.path === path);
+      detailTitleEl.textContent = item?.displayTitle || path;
+      statusSelectEl.value = data.metadata?.status || item?.status || "Proposed";
+
+      previewEl.innerHTML = renderMarkdown(stripFrontMatter(state.content));
+      setEditMode(false);
+      renderList();
+      updateDetailMeta();
+      setStatus("Loaded", "ok");
+    }
+
+    async function saveFile() {
+      if (!state.selectedPath || !state.isEditing) return;
+      const data = await request("/api/file", {
+        method: "POST",
+        body: JSON.stringify({
+          path: state.selectedPath,
+          content: editorEl.value,
+          expectedHash: state.currentHash,
+        }),
+      });
+      state.content = data.content || "";
+      state.currentHash = String(data.hash || "");
+      state.dirty = false;
+      previewEl.innerHTML = renderMarkdown(stripFrontMatter(state.content));
+      setEditMode(false);
+      await refreshList();
+      setStatus("Saved", "ok");
+    }
+
+    async function applyStatus() {
+      if (!state.selectedPath || state.isEditing) return;
+      const data = await request("/api/status", {
+        method: "POST",
+        body: JSON.stringify({
+          path: state.selectedPath,
+          status: statusSelectEl.value,
+          expectedHash: state.currentHash,
+        }),
+      });
+      state.content = data.content || "";
+      state.currentHash = String(data.hash || "");
+      previewEl.innerHTML = renderMarkdown(stripFrontMatter(state.content));
+      await refreshList();
+      setStatus("Status updated", "ok");
+    }
+
+    async function createAdr() {
+      const title = newTitleEl.value.trim();
+      if (!title) {
+        setStatus("Title is required.", "error");
+        return;
+      }
+      const data = await request("/api/create", {
+        method: "POST",
+        body: JSON.stringify({
+          title,
+          status: newStatusEl.value,
+          context: newContextEl.value,
+          options: newOptionsEl.value,
+          decision: newDecisionEl.value,
+        }),
+      });
+      newDialogEl.close();
+      newTitleEl.value = "";
+      newContextEl.value = "";
+      newOptionsEl.value = "";
+      newDecisionEl.value = "";
+      await refreshList();
+      await openFile(data.path);
+      setStatus("ADR created", "ok");
+    }
+
+    async function generateWorkflowFile() {
+      const data = await request("/api/generate-workflow", { method: "POST" });
+      setStatus(`${data.path} generated`, "ok");
+    }
+
+    function debounce(fn, delay) {
+      let timer = null;
+      return (...args) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn(...args), delay);
+      };
+    }
+
+    const persistPreferences = debounce(() => {
+      request("/api/preferences", {
+        method: "POST",
+        body: JSON.stringify({
+          search: searchEl.value.trim(),
+          statusFilter: statusFilterEl.value.trim(),
+          theme: state.theme,
+          includeNonAdr: includeNonAdrCheckboxEl.checked,
+        }),
+      }).catch(() => {});
+    }, 180);
+
+    function applyTheme(mode, persist = true) {
+      state.theme = mode || "auto";
+      if (state.theme === "auto") {
+        document.documentElement.removeAttribute("data-theme-mode");
+      } else {
+        document.documentElement.setAttribute("data-theme-mode", state.theme);
+      }
+      if (persist) persistPreferences();
+    }
+
+    const debouncedRefresh = debounce(
+      () => refreshList().catch((error) => setStatus(error.message, "error")),
+      220
+    );
+
+    editorEl.addEventListener("input", () => {
+      state.dirty = true;
+      updateControls();
+      setStatus("Editing", "");
+    });
+
+    searchEl.addEventListener("input", () => {
+      debouncedRefresh();
+      persistPreferences();
+    });
+    statusFilterEl.addEventListener("change", () => {
+      refreshList().catch((error) => setStatus(error.message, "error"));
+      persistPreferences();
+    });
+    clearSearchButtonEl.addEventListener("click", () => {
+      searchEl.value = "";
+      statusFilterEl.value = "";
+      refreshList().catch((error) => setStatus(error.message, "error"));
+      persistPreferences();
+    });
+    themeSelectEl.addEventListener("change", () => applyTheme(themeSelectEl.value, true));
+    includeNonAdrCheckboxEl.addEventListener("change", () => {
+      refreshList().catch((error) => setStatus(error.message, "error"));
+      persistPreferences();
+    });
+
+    newButtonEl.addEventListener("click", () => newDialogEl.showModal());
+    cancelCreateButtonEl.addEventListener("click", () => newDialogEl.close());
+    createButtonEl.addEventListener("click", (event) => {
+      event.preventDefault();
+      createAdr().catch((error) => setStatus(error.message, "error"));
+    });
+
+    rescanButtonEl.addEventListener("click", () => refreshList().catch((error) => setStatus(error.message, "error")));
+    aiButtonEl.addEventListener("click", () => aiDialogEl.showModal());
+    generateWorkflowButtonEl.addEventListener("click", () => generateWorkflowFile().catch((error) => setStatus(error.message, "error")));
+    closeAiDialogButtonEl.addEventListener("click", () => aiDialogEl.close());
+
+    editButtonEl.addEventListener("click", () => setEditMode(true));
+    cancelEditButtonEl.addEventListener("click", () => {
+      if (state.dirty && !confirm("Discard unsaved changes?")) return;
+      state.dirty = false;
+      setEditMode(false);
+      setStatus("Edit canceled", "");
+    });
+    saveButtonEl.addEventListener("click", () => saveFile().catch((error) => setStatus(error.message, "error")));
+    applyStatusButtonEl.addEventListener("click", () => applyStatus().catch((error) => setStatus(error.message, "error")));
+
+    async function init() {
+      try {
+        await loadState();
+        await refreshList();
+        setEditMode(false);
+        updateControls();
+        setStatus("Ready", "ok");
+      } catch (error) {
+        setStatus(error.message || "Initialization failed", "error");
+      }
+    }
+
+    window.addEventListener("resize", adjustTableViewport);
+    init();
+  </script>
+</body>
+</html>
