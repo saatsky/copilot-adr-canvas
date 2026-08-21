@@ -281,6 +281,79 @@
     dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
     .dialog-body { display: grid; gap: 8px; }
 
+    /* Folder browser dialog */
+    #changeFolderDialog {
+      width: 520px;
+    }
+    .browser-breadcrumb {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 2px;
+      padding: 6px 8px;
+      background: var(--app-row-hover);
+      border: 1px solid var(--app-border);
+      border-radius: 6px;
+      font-size: 13px;
+      min-height: 34px;
+    }
+    .browser-breadcrumb button {
+      border: none;
+      background: none;
+      padding: 2px 4px;
+      border-radius: 4px;
+      color: var(--app-focus);
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .browser-breadcrumb button:hover { text-decoration: underline; }
+    .browser-breadcrumb .crumb-sep {
+      color: var(--app-muted);
+      padding: 0 2px;
+      pointer-events: none;
+    }
+    .browser-dir-list {
+      border: 1px solid var(--app-border);
+      border-radius: 6px;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .browser-dir-list button {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      text-align: left;
+      border: none;
+      border-bottom: 1px solid var(--app-border);
+      border-radius: 0;
+      background: none;
+      padding: 8px 10px;
+      font-size: 13px;
+      color: var(--app-text);
+      cursor: pointer;
+    }
+    .browser-dir-list button:last-child { border-bottom: none; }
+    .browser-dir-list button:hover { background: var(--app-row-hover); }
+    .browser-dir-list button.selected {
+      background: var(--app-primary-bg);
+      outline: 2px solid var(--app-focus);
+      outline-offset: -2px;
+    }
+    .browser-dir-list .empty-note {
+      padding: 12px;
+      color: var(--app-muted);
+      font-size: 13px;
+      font-style: italic;
+      text-align: center;
+    }
+    .browser-dir-icon { font-size: 16px; flex-shrink: 0; }
+    .browser-selected-label {
+      font-size: 13px;
+      color: var(--app-muted);
+    }
+    .browser-selected-label strong { color: var(--app-text); }
+
     .resize-handle {
       height: 6px;
       margin: -3px 0;
@@ -437,18 +510,22 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
   </dialog>
 
   <dialog id="changeFolderDialog">
-    <form class="dialog-body">
-      <h3 style="margin: 0;">Change ADR Folder</h3>
+    <div class="dialog-body">
+      <h3 style="margin: 0;">Select ADR Folder</h3>
       <p style="margin: 0; color: var(--app-muted); font-size: 13px;">
-        Enter a path relative to the workspace root (e.g. <code>docs/adr</code>, <code>architecture/decisions</code>).
+        Browse to the folder, then click <strong>Select This Folder</strong>. Double-click a folder to navigate into it.
       </p>
-      <input id="changeFolderInput" placeholder="docs/adr" required autocomplete="off" spellcheck="false">
+      <div id="browserBreadcrumb" class="browser-breadcrumb"></div>
+      <div id="browserDirList" class="browser-dir-list"></div>
+      <div id="browserSelectedLabel" class="browser-selected-label">
+        Selected: <strong id="browserSelectedValue">—</strong>
+      </div>
       <div id="changeFolderError" style="color: #d1242f; font-size: 13px; display: none;"></div>
       <div class="row" style="justify-content: end;">
         <button id="cancelChangeFolderButton" type="button">Cancel</button>
-        <button id="confirmChangeFolderButton" type="submit" class="primary">Apply</button>
+        <button id="confirmChangeFolderButton" type="button" class="primary">Select This Folder</button>
       </div>
-    </form>
+    </div>
   </dialog>
 
   <script>
@@ -505,10 +582,12 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
     const aiDialogPromptsEl = document.getElementById("aiDialogPrompts");
 
     const changeFolderDialogEl = document.getElementById("changeFolderDialog");
-    const changeFolderInputEl = document.getElementById("changeFolderInput");
     const changeFolderErrorEl = document.getElementById("changeFolderError");
     const cancelChangeFolderButtonEl = document.getElementById("cancelChangeFolderButton");
     const confirmChangeFolderButtonEl = document.getElementById("confirmChangeFolderButton");
+    const browserBreadcrumbEl = document.getElementById("browserBreadcrumb");
+    const browserDirListEl = document.getElementById("browserDirList");
+    const browserSelectedValueEl = document.getElementById("browserSelectedValue");
 
     async function request(url, options = {}) {
       const response = await fetch(url, {
@@ -794,21 +873,21 @@ Summarize decision history for [topic] citing ADR number and title.`;
     }
 
     async function changeFolder() {
-      const raw = changeFolderInputEl.value.trim();
+      const raw = browserState.selectedRel;
       changeFolderErrorEl.style.display = "none";
-      if (!raw) {
-        changeFolderErrorEl.textContent = "Please enter a folder path.";
+      if (!raw && raw !== ".") {
+        changeFolderErrorEl.textContent = "Please select a folder.";
         changeFolderErrorEl.style.display = "block";
         return;
       }
+      const folderPath = raw === "." ? "." : raw;
       try {
         const data = await request("/api/change-folder", {
           method: "POST",
-          body: JSON.stringify({ adrFolder: raw }),
+          body: JSON.stringify({ adrFolder: folderPath }),
         });
         applyAdrFolder(data.rootPathDisplay, data.rootPath);
         changeFolderDialogEl.close();
-        // Reset selection since the folder changed
         state.selectedPath = "";
         detailTitleEl.textContent = "No ADR selected";
         metaLineEl.textContent = "Select an ADR from the table.";
@@ -816,11 +895,89 @@ Summarize decision history for [topic] citing ADR number and title.`;
         editorEl.value = "";
         setEditMode(false);
         await refreshList();
-        setStatus(`Folder changed to ${raw}`, "ok");
+        setStatus(`Folder changed to ${data.rootPathDisplay}`, "ok");
       } catch (error) {
         changeFolderErrorEl.textContent = error.message || "Failed to change folder.";
         changeFolderErrorEl.style.display = "block";
       }
+    }
+
+    // ── Folder browser state & rendering ──────────────────────────────────
+    const browserState = {
+      currentRel: ".",   // currently browsed dir (relative to workspace root)
+      selectedRel: null, // the folder the user has clicked to select
+      dirs: [],
+    };
+
+    async function browserNavigate(rel) {
+      browserDirListEl.innerHTML = '<div class="empty-note">Loading…</div>';
+      try {
+        const data = await request(`/api/browse-dirs?rel=${encodeURIComponent(rel || ".")}`);
+        browserState.currentRel = data.rel === "." ? "." : (data.rel || ".");
+        browserState.dirs = data.dirs || [];
+        browserRender();
+      } catch (err) {
+        browserDirListEl.innerHTML = `<div class="empty-note" style="color:#d1242f">${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function browserRender() {
+      // Breadcrumb
+      const parts = browserState.currentRel === "." ? [] : browserState.currentRel.split("/");
+      browserBreadcrumbEl.innerHTML = "";
+
+      const rootBtn = document.createElement("button");
+      rootBtn.type = "button";
+      rootBtn.textContent = "/ (root)";
+      rootBtn.addEventListener("click", () => browserNavigate("."));
+      browserBreadcrumbEl.appendChild(rootBtn);
+
+      parts.forEach((part, i) => {
+        const sep = document.createElement("span");
+        sep.className = "crumb-sep";
+        sep.textContent = "›";
+        browserBreadcrumbEl.appendChild(sep);
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = part;
+        const rel = parts.slice(0, i + 1).join("/");
+        btn.addEventListener("click", () => browserNavigate(rel));
+        browserBreadcrumbEl.appendChild(btn);
+      });
+
+      // Dir list
+      browserDirListEl.innerHTML = "";
+      if (browserState.dirs.length === 0) {
+        const note = document.createElement("div");
+        note.className = "empty-note";
+        note.textContent = "No subdirectories here.";
+        browserDirListEl.appendChild(note);
+      } else {
+        for (const dir of browserState.dirs) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = dir.rel === browserState.selectedRel ? "selected" : "";
+          btn.innerHTML = `<span class="browser-dir-icon">📁</span>${escapeHtml(dir.name)}`;
+
+          // Single click → select
+          btn.addEventListener("click", () => {
+            browserState.selectedRel = dir.rel;
+            browserSelectedValueEl.textContent = dir.rel;
+            browserDirListEl.querySelectorAll("button").forEach((b) => b.classList.remove("selected"));
+            btn.classList.add("selected");
+            changeFolderErrorEl.style.display = "none";
+          });
+
+          // Double click → navigate into
+          btn.addEventListener("dblclick", () => browserNavigate(dir.rel));
+
+          browserDirListEl.appendChild(btn);
+        }
+      }
+
+      // Update selected label
+      browserSelectedValueEl.textContent = browserState.selectedRel || "—";
     }
 
     async function refreshList() {
@@ -993,14 +1150,16 @@ Summarize decision history for [topic] citing ADR number and title.`;
 
     rescanButtonEl.addEventListener("click", () => refreshList().catch((error) => setStatus(error.message, "error")));
     changeFolderButtonEl.addEventListener("click", () => {
-      changeFolderInputEl.value = state.adrFolder;
       changeFolderErrorEl.style.display = "none";
+      // Pre-navigate to the currently active folder
+      const startRel = state.adrFolder && state.adrFolder !== "." ? state.adrFolder : ".";
+      browserState.selectedRel = startRel !== "." ? startRel : null;
+      browserSelectedValueEl.textContent = browserState.selectedRel || "—";
       changeFolderDialogEl.showModal();
-      changeFolderInputEl.select();
+      browserNavigate(startRel);
     });
     cancelChangeFolderButtonEl.addEventListener("click", () => changeFolderDialogEl.close());
-    confirmChangeFolderButtonEl.addEventListener("click", (event) => {
-      event.preventDefault();
+    confirmChangeFolderButtonEl.addEventListener("click", () => {
       changeFolder().catch((error) => setStatus(error.message, "error"));
     });
     aiButtonEl.addEventListener("click", () => aiDialogEl.showModal());

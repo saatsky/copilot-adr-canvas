@@ -567,6 +567,34 @@ async function handleApi(req, res, instanceId) {
             return;
         }
 
+        if (req.method === "GET" && route === "/api/browse-dirs") {
+            // List subdirectories of a path relative to workspace root.
+            // Param: rel (relative path from workspace root, default ".")
+            const rel = String(url.searchParams.get("rel") || ".").trim() || ".";
+            const absDir = path.isAbsolute(rel)
+                ? null
+                : path.resolve(state.workspaceRoot, rel);
+            const wsNorm = path.resolve(state.workspaceRoot);
+            if (!absDir || (absDir !== wsNorm && !absDir.startsWith(wsNorm + path.sep))) {
+                throw new ApiError(400, "Path is outside the workspace.");
+            }
+            if (!existsSync(absDir)) {
+                writeJson(res, 200, { rel: rel === "." ? "" : rel, dirs: [] });
+                return;
+            }
+            const entries = await readdir(absDir, { withFileTypes: true });
+            const dirs = entries
+                .filter((e) => e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules")
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((e) => {
+                    const childRel = path.relative(wsNorm, path.join(absDir, e.name)).split(path.sep).join("/");
+                    return { name: e.name, rel: childRel };
+                });
+            const currentRel = path.relative(wsNorm, absDir).split(path.sep).join("/") || ".";
+            writeJson(res, 200, { rel: currentRel, dirs });
+            return;
+        }
+
         if (req.method === "POST" && route === "/api/change-folder") {
             const body = await readRequestBody(req);
             const payload = JSON.parse(body || "{}");
