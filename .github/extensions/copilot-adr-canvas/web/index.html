@@ -335,6 +335,7 @@
         </select>
         <button id="newButton" type="button" class="primary">New ADR</button>
         <button id="rescanButton" type="button">Rescan</button>
+        <button id="changeFolderButton" type="button">Change Folder</button>
         <button id="aiButton" type="button">AI Integration</button>
         <label class="inline-check" for="includeNonAdrCheckbox">
           <input id="includeNonAdrCheckbox" type="checkbox">
@@ -421,7 +422,7 @@
         <button id="generateWorkflowButton" type="button" class="primary">Generate AI_ADR_WORKFLOW.md</button>
       </div>
       <p>Prompt examples (MarkdownADRManager style):</p>
-      <pre style="margin:0;padding:10px;border:1px solid var(--app-border);border-radius:6px;overflow:auto;">Create a new ADR for [decision] using:
+      <pre id="aiDialogPrompts" style="margin:0;padding:10px;border:1px solid var(--app-border);border-radius:6px;overflow:auto;">Create a new ADR for [decision] using:
 - filename ADR-NNNN-title-with-dashes.md
 - front matter (title, date, status)
 - sections: Status, Context, Options, Decision, Consequences
@@ -435,9 +436,25 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
     </div>
   </dialog>
 
+  <dialog id="changeFolderDialog">
+    <form class="dialog-body">
+      <h3 style="margin: 0;">Change ADR Folder</h3>
+      <p style="margin: 0; color: var(--app-muted); font-size: 13px;">
+        Enter a path relative to the workspace root (e.g. <code>docs/adr</code>, <code>architecture/decisions</code>).
+      </p>
+      <input id="changeFolderInput" placeholder="docs/adr" required autocomplete="off" spellcheck="false">
+      <div id="changeFolderError" style="color: #d1242f; font-size: 13px; display: none;"></div>
+      <div class="row" style="justify-content: end;">
+        <button id="cancelChangeFolderButton" type="button">Cancel</button>
+        <button id="confirmChangeFolderButton" type="submit" class="primary">Apply</button>
+      </div>
+    </form>
+  </dialog>
+
   <script>
     const state = {
       rootPath: "",
+      adrFolder: "docs/adr",
       items: [],
       selectedPath: "",
       content: "",
@@ -463,6 +480,7 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
     const themeSelectEl = document.getElementById("themeSelect");
     const newButtonEl = document.getElementById("newButton");
     const rescanButtonEl = document.getElementById("rescanButton");
+    const changeFolderButtonEl = document.getElementById("changeFolderButton");
     const aiButtonEl = document.getElementById("aiButton");
     const includeNonAdrCheckboxEl = document.getElementById("includeNonAdrCheckbox");
 
@@ -484,6 +502,13 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
     const aiDialogEl = document.getElementById("aiDialog");
     const generateWorkflowButtonEl = document.getElementById("generateWorkflowButton");
     const closeAiDialogButtonEl = document.getElementById("closeAiDialogButton");
+    const aiDialogPromptsEl = document.getElementById("aiDialogPrompts");
+
+    const changeFolderDialogEl = document.getElementById("changeFolderDialog");
+    const changeFolderInputEl = document.getElementById("changeFolderInput");
+    const changeFolderErrorEl = document.getElementById("changeFolderError");
+    const cancelChangeFolderButtonEl = document.getElementById("cancelChangeFolderButton");
+    const confirmChangeFolderButtonEl = document.getElementById("confirmChangeFolderButton");
 
     async function request(url, options = {}) {
       const response = await fetch(url, {
@@ -741,16 +766,61 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
       });
     }());
 
+    function applyAdrFolder(folder, rootPath) {
+      state.adrFolder = folder || "docs/adr";
+      state.rootPath = rootPath || "";
+      rootPathEl.textContent = state.adrFolder;
+      if (aiDialogPromptsEl) {
+        aiDialogPromptsEl.textContent = `Create a new ADR for [decision] using:
+- filename ADR-NNNN-title-with-dashes.md
+- front matter (title, date, status)
+- sections: Status, Context, Options, Decision, Consequences
+
+Review ${state.adrFolder} and suggest which Proposed ADRs should be Accepted, with rationale.
+
+Summarize decision history for [topic] citing ADR number and title.`;
+      }
+    }
+
     async function loadState() {
       const data = await request("/api/state");
-      state.rootPath = data.rootPath;
-      rootPathEl.textContent = data.rootPathDisplay || "docs/adr";
+      applyAdrFolder(data.rootPathDisplay || data.preferences?.adrFolder || "docs/adr", data.rootPath);
       searchEl.value = String(data.preferences?.search || "");
       statusFilterEl.value = String(data.preferences?.statusFilter || "");
       state.theme = String(data.preferences?.theme || "auto");
       themeSelectEl.value = state.theme;
       includeNonAdrCheckboxEl.checked = Boolean(data.preferences?.includeNonAdr);
       applyTheme(state.theme, false);
+    }
+
+    async function changeFolder() {
+      const raw = changeFolderInputEl.value.trim();
+      changeFolderErrorEl.style.display = "none";
+      if (!raw) {
+        changeFolderErrorEl.textContent = "Please enter a folder path.";
+        changeFolderErrorEl.style.display = "block";
+        return;
+      }
+      try {
+        const data = await request("/api/change-folder", {
+          method: "POST",
+          body: JSON.stringify({ adrFolder: raw }),
+        });
+        applyAdrFolder(data.rootPathDisplay, data.rootPath);
+        changeFolderDialogEl.close();
+        // Reset selection since the folder changed
+        state.selectedPath = "";
+        detailTitleEl.textContent = "No ADR selected";
+        metaLineEl.textContent = "Select an ADR from the table.";
+        previewEl.innerHTML = "";
+        editorEl.value = "";
+        setEditMode(false);
+        await refreshList();
+        setStatus(`Folder changed to ${raw}`, "ok");
+      } catch (error) {
+        changeFolderErrorEl.textContent = error.message || "Failed to change folder.";
+        changeFolderErrorEl.style.display = "block";
+      }
     }
 
     async function refreshList() {
@@ -922,6 +992,17 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
     });
 
     rescanButtonEl.addEventListener("click", () => refreshList().catch((error) => setStatus(error.message, "error")));
+    changeFolderButtonEl.addEventListener("click", () => {
+      changeFolderInputEl.value = state.adrFolder;
+      changeFolderErrorEl.style.display = "none";
+      changeFolderDialogEl.showModal();
+      changeFolderInputEl.select();
+    });
+    cancelChangeFolderButtonEl.addEventListener("click", () => changeFolderDialogEl.close());
+    confirmChangeFolderButtonEl.addEventListener("click", (event) => {
+      event.preventDefault();
+      changeFolder().catch((error) => setStatus(error.message, "error"));
+    });
     aiButtonEl.addEventListener("click", () => aiDialogEl.showModal());
     generateWorkflowButtonEl.addEventListener("click", () => generateWorkflowFile().catch((error) => setStatus(error.message, "error")));
     closeAiDialogButtonEl.addEventListener("click", () => aiDialogEl.close());
