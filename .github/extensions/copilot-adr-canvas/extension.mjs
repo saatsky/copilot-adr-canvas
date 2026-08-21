@@ -98,6 +98,11 @@ function getActiveRoot(state) {
     return state.roots[state.activeIndex || 0];
 }
 
+function getRootPathDisplay(state) {
+    const activeRoot = getActiveRoot(state);
+    return state.roots.length > 1 ? `${activeRoot.label} / docs/adr` : "docs/adr";
+}
+
 function resolvePreferencesPath() {
     const workspacePath = runtimeSession?.workspacePath;
     const baseDir = workspacePath || process.cwd();
@@ -587,9 +592,7 @@ async function handleApi(req, res, instanceId) {
             const activeRoot = getActiveRoot(state);
             writeJson(res, 200, {
                 rootPath: activeRoot.rootPath,
-                rootPathDisplay: state.roots.length > 1
-                    ? `${activeRoot.label} / docs/adr`
-                    : "docs/adr",
+                rootPathDisplay: getRootPathDisplay(state),
                 preferences,
                 repos: state.roots.map((r, i) => ({ label: r.label, index: i })),
                 activeRepoIndex: state.activeIndex || 0,
@@ -666,9 +669,7 @@ async function handleApi(req, res, instanceId) {
             const activeRoot = getActiveRoot(state);
             writeJson(res, 200, {
                 rootPath: activeRoot.rootPath,
-                rootPathDisplay: state.roots.length > 1
-                    ? `${activeRoot.label} / docs/adr`
-                    : "docs/adr",
+                rootPathDisplay: getRootPathDisplay(state),
                 activeRepoIndex: state.activeIndex,
             });
             return;

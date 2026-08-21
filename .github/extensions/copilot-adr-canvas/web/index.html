@@ -411,6 +411,7 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
   <script>
     const state = {
       rootPath: "",
+      activeRepoIndex: 0,
       items: [],
       selectedPath: "",
       content: "",
@@ -686,6 +687,7 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
       applyTheme(state.theme, false);
 
       if (data.multiRepo && Array.isArray(data.repos) && data.repos.length > 1) {
+        state.activeRepoIndex = data.activeRepoIndex ?? 0;
         repoRowEl.style.display = "";
         repoSelectEl.innerHTML = "";
         for (const repo of data.repos) {
@@ -880,6 +882,7 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
         body: JSON.stringify({ index }),
       }).then((data) => {
         state.rootPath = data.rootPath;
+        state.activeRepoIndex = data.activeRepoIndex ?? index;
         rootPathEl.textContent = data.rootPathDisplay || "docs/adr";
         state.selectedPath = "";
         detailTitleEl.textContent = "No ADR selected";
