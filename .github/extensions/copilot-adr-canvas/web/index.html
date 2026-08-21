@@ -58,7 +58,7 @@
     .layout {
       height: calc(100vh - 20px);
       display: grid;
-      grid-template-rows: auto auto auto 1fr;
+      grid-template-rows: auto auto 1fr auto 1fr;
       gap: 10px;
     }
 
@@ -130,7 +130,9 @@
 
     .table-box {
       overflow: hidden;
-      display: block;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
     }
 
     .table-head-note {
@@ -138,11 +140,13 @@
       color: var(--app-muted);
       border-bottom: 1px solid var(--app-border);
       font-size: 12px;
+      flex-shrink: 0;
     }
 
     .table-wrap {
       overflow: auto;
-      max-height: 240px;
+      flex: 1 1 0;
+      min-height: 0;
     }
 
     table {
@@ -276,6 +280,31 @@
     }
     dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
     .dialog-body { display: grid; gap: 8px; }
+
+    .resize-handle {
+      height: 6px;
+      margin: -3px 0;
+      cursor: row-resize;
+      z-index: 10;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .resize-handle::after {
+      content: '';
+      display: block;
+      width: 40px;
+      height: 3px;
+      border-radius: 2px;
+      background: var(--app-border);
+      transition: background 0.15s;
+    }
+    .resize-handle:hover::after,
+    .resize-handle.dragging::after {
+      background: var(--app-focus);
+    }
   </style>
 </head>
 <body>
@@ -331,6 +360,8 @@
         </table>
       </div>
     </section>
+
+    <div class="resize-handle" id="resizeHandle" role="separator" aria-label="Drag to resize panels"></div>
 
     <section class="box detail-box">
       <div class="detail-head">
@@ -657,16 +688,58 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
     }
 
     function adjustTableViewport() {
-      if (!tableWrapEl || !tableHeadRowEl) return;
-      const rows = listBodyEl.querySelectorAll("tr");
-      const rowCount = rows.length;
-      const visibleRows = Math.min(5, rowCount);
-      const rowHeight = rows[0]?.getBoundingClientRect().height || 40;
-      const headHeight = tableHeadRowEl.getBoundingClientRect().height || 34;
-      const height = Math.ceil(headHeight + (rowHeight * visibleRows) + 2);
-      tableWrapEl.style.maxHeight = `${height}px`;
-      tableWrapEl.style.overflowY = rowCount > 5 ? "auto" : "hidden";
+      // no-op: table-wrap fills available space via flex layout
     }
+
+    // Drag-to-resize between the table and detail panels
+    (function initResizeHandle() {
+      const handle = document.getElementById("resizeHandle");
+      const layout = document.querySelector(".layout");
+      if (!handle || !layout) return;
+
+      let startY = 0;
+      let startTableFr = 1;
+      let startDetailFr = 1;
+
+      function getComputedFractions() {
+        const style = getComputedStyle(layout);
+        const rows = style.gridTemplateRows.split(" ");
+        // rows: [headerPx, toolbarPx, tablePx, handlePx, detailPx]
+        const total = parseFloat(rows[2]) + parseFloat(rows[4]);
+        return {
+          table: parseFloat(rows[2]),
+          detail: parseFloat(rows[4]),
+          total,
+        };
+      }
+
+      handle.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        handle.classList.add("dragging");
+        startY = e.clientY;
+        const fracs = getComputedFractions();
+        startTableFr = fracs.table;
+        startDetailFr = fracs.detail;
+        const total = fracs.total;
+
+        function onMove(ev) {
+          const delta = ev.clientY - startY;
+          const newTable = Math.max(80, startTableFr + delta);
+          const newDetail = Math.max(80, total - newTable);
+          const clampedTable = total - newDetail;
+          layout.style.gridTemplateRows = `auto auto ${clampedTable}px auto ${newDetail}px`;
+        }
+
+        function onUp() {
+          handle.classList.remove("dragging");
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+        }
+
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+    }());
 
     async function loadState() {
       const data = await request("/api/state");
@@ -875,7 +948,7 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
       }
     }
 
-    window.addEventListener("resize", adjustTableViewport);
+    window.addEventListener("resize", () => {});
     init();
   </script>
 </body>
