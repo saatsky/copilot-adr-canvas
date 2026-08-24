@@ -70,6 +70,42 @@ function resolveWorkspaceRoot(workingDirectory) {
     return path.resolve(String(workingDirectory || process.cwd()));
 }
 
+function resolveAdrRoots(session, adrFolder) {
+    const workspaceFolders = session?.workspaceFolders;
+    if (Array.isArray(workspaceFolders) && workspaceFolders.length > 0) {
+        const roots = workspaceFolders
+            .map((folder) => {
+                const folderPath = typeof folder === "string"
+                    ? folder
+                    : String(folder?.path || folder?.uri || "");
+                if (!folderPath) return null;
+                const workspaceRoot = path.resolve(folderPath);
+                return {
+                    workspaceRoot,
+                    rootPath: resolveAdrRootPath(workspaceRoot, adrFolder),
+                    label: path.basename(workspaceRoot),
+                };
+            })
+            .filter(Boolean);
+        if (roots.length > 0) return roots;
+    }
+    const workspaceRoot = resolveWorkspaceRoot(session?.workingDirectory);
+    return [{
+        workspaceRoot,
+        rootPath: resolveAdrRootPath(session?.workingDirectory, adrFolder),
+        label: path.basename(workspaceRoot),
+    }];
+}
+
+function getActiveRoot(state) {
+    return state.roots[state.activeIndex || 0];
+}
+
+function getRootPathDisplay(state) {
+    const activeRoot = getActiveRoot(state);
+    return path.relative(activeRoot.workspaceRoot, activeRoot.rootPath).split(path.sep).join("/") || ".";
+}
+
 function resolvePreferencesPath() {
     const workspacePath = runtimeSession?.workspacePath;
     const baseDir = workspacePath || process.cwd();
@@ -559,10 +595,14 @@ async function handleApi(req, res, instanceId) {
     try {
         if (req.method === "GET" && route === "/api/state") {
             const preferences = await readPreferences();
+            const activeRoot = getActiveRoot(state);
             writeJson(res, 200, {
-                rootPath: state.rootPath,
-                rootPathDisplay: preferences.adrFolder || DEFAULT_ADR_FOLDER,
+                rootPath: activeRoot.rootPath,
+                rootPathDisplay: getRootPathDisplay(state),
                 preferences,
+                repos: state.roots.map((r, i) => ({ label: r.label, index: i })),
+                activeRepoIndex: state.activeIndex || 0,
+                multiRepo: state.roots.length > 1,
             });
             return;
         }
@@ -571,10 +611,11 @@ async function handleApi(req, res, instanceId) {
             // List subdirectories of a path relative to workspace root.
             // Param: rel (relative path from workspace root, default ".")
             const rel = String(url.searchParams.get("rel") || ".").trim() || ".";
+            const activeRoot = getActiveRoot(state);
             const absDir = path.isAbsolute(rel)
                 ? null
-                : path.resolve(state.workspaceRoot, rel);
-            const wsNorm = path.resolve(state.workspaceRoot);
+                : path.resolve(activeRoot.workspaceRoot, rel);
+            const wsNorm = path.resolve(activeRoot.workspaceRoot);
             if (!absDir || (absDir !== wsNorm && !absDir.startsWith(wsNorm + path.sep))) {
                 throw new ApiError(400, "Path is outside the workspace.");
             }
@@ -606,26 +647,27 @@ async function handleApi(req, res, instanceId) {
                 throw new ApiError(400, "Folder must be a relative path (e.g. docs/adr or architecture/decisions).");
             }
 
-            const newRootPath = resolveAdrRootPath(state.workspaceRoot, rawFolder);
+            const activeRoot = getActiveRoot(state);
+            const newRootPath = resolveAdrRootPath(activeRoot.workspaceRoot, rawFolder);
 
             // Ensure it stays inside the workspace
-            const wsNorm = path.resolve(state.workspaceRoot);
+            const wsNorm = path.resolve(activeRoot.workspaceRoot);
             if (!newRootPath.startsWith(wsNorm + path.sep) && newRootPath !== wsNorm) {
                 throw new ApiError(400, "Folder must be inside the workspace root.");
             }
 
-            state.rootPath = newRootPath;
+            activeRoot.rootPath = newRootPath;
             const prefs = await writePreferences({ adrFolder: rawFolder });
             writeJson(res, 200, {
-                rootPath: state.rootPath,
-                rootPathDisplay: rawFolder,
+                rootPath: activeRoot.rootPath,
+                rootPathDisplay: getRootPathDisplay(state),
                 preferences: prefs,
             });
             return;
         }
 
         if (req.method === "GET" && route === "/api/list") {
-            const data = await listAdrs(state.rootPath, {
+            const data = await listAdrs(getActiveRoot(state).rootPath, {
                 query: url.searchParams.get("q") || "",
                 status: url.searchParams.get("status") || "",
                 includeNonAdr: url.searchParams.get("includeNonAdr") === "1",
@@ -637,7 +679,7 @@ async function handleApi(req, res, instanceId) {
         if (req.method === "GET" && route === "/api/file") {
             const relativePath = String(url.searchParams.get("path") || "");
             if (!relativePath) throw new ApiError(400, "Query parameter 'path' is required.");
-            const data = await readAdr(state.rootPath, relativePath);
+            const data = await readAdr(getActiveRoot(state).rootPath, relativePath);
             writeJson(res, 200, data);
             return;
         }
@@ -645,7 +687,7 @@ async function handleApi(req, res, instanceId) {
         if (req.method === "POST" && route === "/api/file") {
             const body = await readRequestBody(req);
             const payload = JSON.parse(body || "{}");
-            const data = await saveAdr(state.rootPath, payload.path, payload.content, payload.expectedHash);
+            const data = await saveAdr(getActiveRoot(state).rootPath, payload.path, payload.content, payload.expectedHash);
             writeJson(res, 200, data);
             return;
         }
@@ -653,7 +695,7 @@ async function handleApi(req, res, instanceId) {
         if (req.method === "POST" && route === "/api/create") {
             const body = await readRequestBody(req);
             const payload = JSON.parse(body || "{}");
-            const data = await createAdr(state.rootPath, payload);
+            const data = await createAdr(getActiveRoot(state).rootPath, payload);
             writeJson(res, 200, data);
             return;
         }
@@ -661,7 +703,7 @@ async function handleApi(req, res, instanceId) {
         if (req.method === "POST" && route === "/api/status") {
             const body = await readRequestBody(req);
             const payload = JSON.parse(body || "{}");
-            const data = await updateAdrStatus(state.rootPath, payload.path, payload.status, payload.expectedHash);
+            const data = await updateAdrStatus(getActiveRoot(state).rootPath, payload.path, payload.status, payload.expectedHash);
             writeJson(res, 200, data);
             return;
         }
@@ -675,8 +717,26 @@ async function handleApi(req, res, instanceId) {
         }
 
         if (req.method === "POST" && route === "/api/generate-workflow") {
-            const generated = await generateAiAdrWorkflow(state.rootPath, state.workspaceRoot);
+            const activeRoot = getActiveRoot(state);
+            const generated = await generateAiAdrWorkflow(activeRoot.rootPath, activeRoot.workspaceRoot);
             writeJson(res, 200, generated);
+            return;
+        }
+
+        if (req.method === "POST" && route === "/api/selectrepo") {
+            const body = await readRequestBody(req);
+            const payload = JSON.parse(body || "{}");
+            const index = Number(payload.index);
+            if (!Number.isFinite(index) || index < 0 || index >= state.roots.length) {
+                throw new ApiError(400, "Invalid repo index.");
+            }
+            state.activeIndex = index;
+            const activeRoot = getActiveRoot(state);
+            writeJson(res, 200, {
+                rootPath: activeRoot.rootPath,
+                rootPathDisplay: getRootPathDisplay(state),
+                activeRepoIndex: state.activeIndex,
+            });
             return;
         }
 
@@ -741,9 +801,10 @@ const canvas = createCanvas({
             handler: async (ctx) => {
                 const state = instances.get(ctx.instanceId);
                 if (!state) throw new CanvasError("canvas_state_missing", "Canvas instance not found.");
+                const activeRoot = getActiveRoot(state);
                 return {
-                    rootPath: state.rootPath,
-                    items: await listAdrs(state.rootPath, ctx.input || {}),
+                    rootPath: activeRoot.rootPath,
+                    items: await listAdrs(activeRoot.rootPath, ctx.input || {}),
                 };
             },
         },
@@ -764,7 +825,7 @@ const canvas = createCanvas({
             handler: async (ctx) => {
                 const state = instances.get(ctx.instanceId);
                 if (!state) throw new CanvasError("canvas_state_missing", "Canvas instance not found.");
-                return createAdr(state.rootPath, ctx.input || {});
+                return createAdr(getActiveRoot(state).rootPath, ctx.input || {});
             },
         },
         {
@@ -782,7 +843,7 @@ const canvas = createCanvas({
             handler: async (ctx) => {
                 const state = instances.get(ctx.instanceId);
                 if (!state) throw new CanvasError("canvas_state_missing", "Canvas instance not found.");
-                return updateAdrStatus(state.rootPath, ctx.input.path, ctx.input.status, ctx.input.expectedHash);
+                return updateAdrStatus(getActiveRoot(state).rootPath, ctx.input.path, ctx.input.status, ctx.input.expectedHash);
             },
         },
     ],
@@ -791,10 +852,9 @@ const canvas = createCanvas({
             throw new CanvasError("canvas_input_invalid", "This canvas uses the configured ADR folder in the active workspace.");
         }
 
-        const workspaceRoot = resolveWorkspaceRoot(ctx.session?.workingDirectory);
         const prefs = await readPreferences();
-        const rootPath = resolveAdrRootPath(workspaceRoot, prefs.adrFolder);
-        instances.set(ctx.instanceId, { rootPath, workspaceRoot });
+        const roots = resolveAdrRoots(ctx.session, prefs.adrFolder);
+        instances.set(ctx.instanceId, { roots, activeIndex: 0 });
 
         let entry = servers.get(ctx.instanceId);
         if (!entry) {

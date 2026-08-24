@@ -415,6 +415,10 @@
           Include non-ADR markdown
         </label>
       </div>
+      <div class="row" id="repoRow" style="display:none;">
+        <label for="repoSelect" style="color:var(--app-muted);white-space:nowrap;">Repository:</label>
+        <select id="repoSelect" aria-label="Select repository"></select>
+      </div>
     </section>
 
     <section class="box table-box">
@@ -532,6 +536,7 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
     const state = {
       rootPath: "",
       adrFolder: "docs/adr",
+      activeRepoIndex: 0,
       items: [],
       selectedPath: "",
       content: "",
@@ -560,6 +565,8 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
     const changeFolderButtonEl = document.getElementById("changeFolderButton");
     const aiButtonEl = document.getElementById("aiButton");
     const includeNonAdrCheckboxEl = document.getElementById("includeNonAdrCheckbox");
+    const repoRowEl = document.getElementById("repoRow");
+    const repoSelectEl = document.getElementById("repoSelect");
 
     const statusSelectEl = document.getElementById("statusSelect");
     const applyStatusButtonEl = document.getElementById("applyStatusButton");
@@ -870,6 +877,21 @@ Summarize decision history for [topic] citing ADR number and title.`;
       themeSelectEl.value = state.theme;
       includeNonAdrCheckboxEl.checked = Boolean(data.preferences?.includeNonAdr);
       applyTheme(state.theme, false);
+
+      if (data.multiRepo && Array.isArray(data.repos) && data.repos.length > 1) {
+        state.activeRepoIndex = data.activeRepoIndex ?? 0;
+        repoRowEl.style.display = "";
+        repoSelectEl.innerHTML = "";
+        for (const repo of data.repos) {
+          const option = document.createElement("option");
+          option.value = String(repo.index);
+          option.textContent = repo.label;
+          if (repo.index === data.activeRepoIndex) option.selected = true;
+          repoSelectEl.appendChild(option);
+        }
+      } else {
+        repoRowEl.style.display = "none";
+      }
     }
 
     async function changeFolder() {
@@ -1165,6 +1187,29 @@ Summarize decision history for [topic] citing ADR number and title.`;
     aiButtonEl.addEventListener("click", () => aiDialogEl.showModal());
     generateWorkflowButtonEl.addEventListener("click", () => generateWorkflowFile().catch((error) => setStatus(error.message, "error")));
     closeAiDialogButtonEl.addEventListener("click", () => aiDialogEl.close());
+
+    repoSelectEl.addEventListener("change", () => {
+      const index = Number(repoSelectEl.value);
+      request("/api/selectrepo", {
+        method: "POST",
+        body: JSON.stringify({ index }),
+      }).then((data) => {
+        applyAdrFolder(data.rootPathDisplay || "docs/adr", data.rootPath);
+        state.activeRepoIndex = data.activeRepoIndex ?? index;
+        state.selectedPath = "";
+        detailTitleEl.textContent = "No ADR selected";
+        metaLineEl.textContent = "Select an ADR from the table.";
+        previewEl.innerHTML = "";
+        state.content = "";
+        state.currentHash = "";
+        state.dirty = false;
+        setEditMode(false);
+        updateControls();
+        return refreshList();
+      }).then(() => {
+        setStatus("Switched repository", "ok");
+      }).catch((error) => setStatus(error.message, "error"));
+    });
 
     editButtonEl.addEventListener("click", () => setEditMode(true));
     cancelEditButtonEl.addEventListener("click", () => {
