@@ -538,12 +538,12 @@ Proposed
 
 ## Options
 
-- **Option A:** <Description>  
-  Pros: <...>  
-  Cons: <...>
-- **Option B:** <Description>  
-  Pros: <...>  
-  Cons: <...>
+- Option A: <Description>
+  - Pros: <...>
+  - Cons: <...>
+- Option B: <Description>
+  - Pros: <...>
+  - Cons: <...>
 
 ## Decision
 
@@ -551,11 +551,9 @@ Proposed
 
 ## Consequences
 
-<
-- Describe outcomes 
+- Describe outcomes
 - trade-offs
 - follow-up implications.
->
 \`\`\`
 
 ## AI prompt examples
