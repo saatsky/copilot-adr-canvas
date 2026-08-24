@@ -98,7 +98,7 @@ function resolveAdrRoots(session, adrFolder) {
 }
 
 function getActiveRoot(state) {
-    return state.roots[state.activeIndex || 0];
+    return state.roots[state.activeIndex ?? 0];
 }
 
 function getRootPathDisplay(state) {
@@ -601,7 +601,7 @@ async function handleApi(req, res, instanceId) {
                 rootPathDisplay: getRootPathDisplay(state),
                 preferences,
                 repos: state.roots.map((r, i) => ({ label: r.label, index: i })),
-                activeRepoIndex: state.activeIndex || 0,
+                activeRepoIndex: state.activeIndex ?? 0,
                 multiRepo: state.roots.length > 1,
             });
             return;
@@ -647,14 +647,17 @@ async function handleApi(req, res, instanceId) {
                 throw new ApiError(400, "Folder must be a relative path (e.g. docs/adr or architecture/decisions).");
             }
 
-            for (const root of state.roots) {
+            const nextRootPaths = state.roots.map((root) => {
                 const newRootPath = resolveAdrRootPath(root.workspaceRoot, rawFolder);
                 const wsNorm = path.resolve(root.workspaceRoot);
                 if (!newRootPath.startsWith(wsNorm + path.sep) && newRootPath !== wsNorm) {
                     throw new ApiError(400, "Folder must be inside the workspace root.");
                 }
-                root.rootPath = newRootPath;
-            }
+                return newRootPath;
+            });
+            state.roots.forEach((root, index) => {
+                root.rootPath = nextRootPaths[index];
+            });
             const activeRoot = getActiveRoot(state);
             const prefs = await writePreferences({ adrFolder: rawFolder });
             writeJson(res, 200, {
