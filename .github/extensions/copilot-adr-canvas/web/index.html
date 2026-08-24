@@ -58,7 +58,7 @@
     .layout {
       height: calc(100vh - 20px);
       display: grid;
-      grid-template-rows: auto auto auto 1fr;
+      grid-template-rows: auto auto 1fr auto 1fr;
       gap: 10px;
     }
 
@@ -130,7 +130,9 @@
 
     .table-box {
       overflow: hidden;
-      display: block;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
     }
 
     .table-head-note {
@@ -138,11 +140,13 @@
       color: var(--app-muted);
       border-bottom: 1px solid var(--app-border);
       font-size: 12px;
+      flex-shrink: 0;
     }
 
     .table-wrap {
       overflow: auto;
-      max-height: 240px;
+      flex: 1 1 0;
+      min-height: 0;
     }
 
     table {
@@ -276,6 +280,104 @@
     }
     dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
     .dialog-body { display: grid; gap: 8px; }
+
+    /* Folder browser dialog */
+    #changeFolderDialog {
+      width: 520px;
+    }
+    .browser-breadcrumb {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 2px;
+      padding: 6px 8px;
+      background: var(--app-row-hover);
+      border: 1px solid var(--app-border);
+      border-radius: 6px;
+      font-size: 13px;
+      min-height: 34px;
+    }
+    .browser-breadcrumb button {
+      border: none;
+      background: none;
+      padding: 2px 4px;
+      border-radius: 4px;
+      color: var(--app-focus);
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .browser-breadcrumb button:hover { text-decoration: underline; }
+    .browser-breadcrumb .crumb-sep {
+      color: var(--app-muted);
+      padding: 0 2px;
+      pointer-events: none;
+    }
+    .browser-dir-list {
+      border: 1px solid var(--app-border);
+      border-radius: 6px;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .browser-dir-list button {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      text-align: left;
+      border: none;
+      border-bottom: 1px solid var(--app-border);
+      border-radius: 0;
+      background: none;
+      padding: 8px 10px;
+      font-size: 13px;
+      color: var(--app-text);
+      cursor: pointer;
+    }
+    .browser-dir-list button:last-child { border-bottom: none; }
+    .browser-dir-list button:hover { background: var(--app-row-hover); }
+    .browser-dir-list button.selected {
+      background: var(--app-primary-bg);
+      outline: 2px solid var(--app-focus);
+      outline-offset: -2px;
+    }
+    .browser-dir-list .empty-note {
+      padding: 12px;
+      color: var(--app-muted);
+      font-size: 13px;
+      font-style: italic;
+      text-align: center;
+    }
+    .browser-dir-icon { font-size: 16px; flex-shrink: 0; }
+    .browser-selected-label {
+      font-size: 13px;
+      color: var(--app-muted);
+    }
+    .browser-selected-label strong { color: var(--app-text); }
+
+    .resize-handle {
+      height: 6px;
+      margin: -3px 0;
+      cursor: row-resize;
+      z-index: 10;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .resize-handle::after {
+      content: '';
+      display: block;
+      width: 40px;
+      height: 3px;
+      border-radius: 2px;
+      background: var(--app-border);
+      transition: background 0.15s;
+    }
+    .resize-handle:hover::after,
+    .resize-handle.dragging::after {
+      background: var(--app-focus);
+    }
   </style>
 </head>
 <body>
@@ -306,6 +408,7 @@
         </select>
         <button id="newButton" type="button" class="primary">New ADR</button>
         <button id="rescanButton" type="button">Rescan</button>
+        <button id="changeFolderButton" type="button">Change Folder</button>
         <button id="aiButton" type="button">AI Integration</button>
         <label class="inline-check" for="includeNonAdrCheckbox">
           <input id="includeNonAdrCheckbox" type="checkbox">
@@ -335,6 +438,8 @@
         </table>
       </div>
     </section>
+
+    <div class="resize-handle" id="resizeHandle" role="separator" aria-label="Drag to resize panels"></div>
 
     <section class="box detail-box">
       <div class="detail-head">
@@ -394,7 +499,7 @@
         <button id="generateWorkflowButton" type="button" class="primary">Generate AI_ADR_WORKFLOW.md</button>
       </div>
       <p>Prompt examples (MarkdownADRManager style):</p>
-      <pre style="margin:0;padding:10px;border:1px solid var(--app-border);border-radius:6px;overflow:auto;">Create a new ADR for [decision] using:
+      <pre id="aiDialogPrompts" style="margin:0;padding:10px;border:1px solid var(--app-border);border-radius:6px;overflow:auto;">Create a new ADR for [decision] using:
 - filename ADR-NNNN-title-with-dashes.md
 - front matter (title, date, status)
 - sections: Status, Context, Options, Decision, Consequences
@@ -408,9 +513,29 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
     </div>
   </dialog>
 
+  <dialog id="changeFolderDialog">
+    <div class="dialog-body">
+      <h3 style="margin: 0;">Select ADR Folder</h3>
+      <p style="margin: 0; color: var(--app-muted); font-size: 13px;">
+        Browse to the folder, then click <strong>Select This Folder</strong>. Double-click a folder to navigate into it.
+      </p>
+      <div id="browserBreadcrumb" class="browser-breadcrumb"></div>
+      <div id="browserDirList" class="browser-dir-list"></div>
+      <div id="browserSelectedLabel" class="browser-selected-label">
+        Selected: <strong id="browserSelectedValue">—</strong>
+      </div>
+      <div id="changeFolderError" style="color: #d1242f; font-size: 13px; display: none;"></div>
+      <div class="row" style="justify-content: end;">
+        <button id="cancelChangeFolderButton" type="button">Cancel</button>
+        <button id="confirmChangeFolderButton" type="button" class="primary">Select This Folder</button>
+      </div>
+    </div>
+  </dialog>
+
   <script>
     const state = {
       rootPath: "",
+      adrFolder: "docs/adr",
       activeRepoIndex: 0,
       items: [],
       selectedPath: "",
@@ -437,6 +562,7 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
     const themeSelectEl = document.getElementById("themeSelect");
     const newButtonEl = document.getElementById("newButton");
     const rescanButtonEl = document.getElementById("rescanButton");
+    const changeFolderButtonEl = document.getElementById("changeFolderButton");
     const aiButtonEl = document.getElementById("aiButton");
     const includeNonAdrCheckboxEl = document.getElementById("includeNonAdrCheckbox");
     const repoRowEl = document.getElementById("repoRow");
@@ -460,6 +586,15 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
     const aiDialogEl = document.getElementById("aiDialog");
     const generateWorkflowButtonEl = document.getElementById("generateWorkflowButton");
     const closeAiDialogButtonEl = document.getElementById("closeAiDialogButton");
+    const aiDialogPromptsEl = document.getElementById("aiDialogPrompts");
+
+    const changeFolderDialogEl = document.getElementById("changeFolderDialog");
+    const changeFolderErrorEl = document.getElementById("changeFolderError");
+    const cancelChangeFolderButtonEl = document.getElementById("cancelChangeFolderButton");
+    const confirmChangeFolderButtonEl = document.getElementById("confirmChangeFolderButton");
+    const browserBreadcrumbEl = document.getElementById("browserBreadcrumb");
+    const browserDirListEl = document.getElementById("browserDirList");
+    const browserSelectedValueEl = document.getElementById("browserSelectedValue");
 
     async function request(url, options = {}) {
       const response = await fetch(url, {
@@ -664,21 +799,78 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
     }
 
     function adjustTableViewport() {
-      if (!tableWrapEl || !tableHeadRowEl) return;
-      const rows = listBodyEl.querySelectorAll("tr");
-      const rowCount = rows.length;
-      const visibleRows = Math.min(5, rowCount);
-      const rowHeight = rows[0]?.getBoundingClientRect().height || 40;
-      const headHeight = tableHeadRowEl.getBoundingClientRect().height || 34;
-      const height = Math.ceil(headHeight + (rowHeight * visibleRows) + 2);
-      tableWrapEl.style.maxHeight = `${height}px`;
-      tableWrapEl.style.overflowY = rowCount > 5 ? "auto" : "hidden";
+      // no-op: table-wrap fills available space via flex layout
+    }
+
+    // Drag-to-resize between the table and detail panels
+    (function initResizeHandle() {
+      const handle = document.getElementById("resizeHandle");
+      const layout = document.querySelector(".layout");
+      if (!handle || !layout) return;
+
+      let startY = 0;
+      let startTableFr = 1;
+      let startDetailFr = 1;
+
+      function getComputedFractions() {
+        const style = getComputedStyle(layout);
+        const rows = style.gridTemplateRows.split(" ");
+        // rows: [headerPx, toolbarPx, tablePx, handlePx, detailPx]
+        const total = parseFloat(rows[2]) + parseFloat(rows[4]);
+        return {
+          table: parseFloat(rows[2]),
+          detail: parseFloat(rows[4]),
+          total,
+        };
+      }
+
+      handle.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        handle.classList.add("dragging");
+        startY = e.clientY;
+        const fracs = getComputedFractions();
+        startTableFr = fracs.table;
+        startDetailFr = fracs.detail;
+        const total = fracs.total;
+
+        function onMove(ev) {
+          const delta = ev.clientY - startY;
+          const newTable = Math.max(80, startTableFr + delta);
+          const newDetail = Math.max(80, total - newTable);
+          const clampedTable = total - newDetail;
+          layout.style.gridTemplateRows = `auto auto ${clampedTable}px auto ${newDetail}px`;
+        }
+
+        function onUp() {
+          handle.classList.remove("dragging");
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+        }
+
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+    }());
+
+    function applyAdrFolder(folder, rootPath) {
+      state.adrFolder = folder || "docs/adr";
+      state.rootPath = rootPath || "";
+      rootPathEl.textContent = state.adrFolder;
+      if (aiDialogPromptsEl) {
+        aiDialogPromptsEl.textContent = `Create a new ADR for [decision] using:
+- filename ADR-NNNN-title-with-dashes.md
+- front matter (title, date, status)
+- sections: Status, Context, Options, Decision, Consequences
+
+Review ${state.adrFolder} and suggest which Proposed ADRs should be Accepted, with rationale.
+
+Summarize decision history for [topic] citing ADR number and title.`;
+      }
     }
 
     async function loadState() {
       const data = await request("/api/state");
-      state.rootPath = data.rootPath;
-      rootPathEl.textContent = data.rootPathDisplay || "docs/adr";
+      applyAdrFolder(data.rootPathDisplay || data.preferences?.adrFolder || "docs/adr", data.rootPath);
       searchEl.value = String(data.preferences?.search || "");
       statusFilterEl.value = String(data.preferences?.statusFilter || "");
       state.theme = String(data.preferences?.theme || "auto");
@@ -700,6 +892,114 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
       } else {
         repoRowEl.style.display = "none";
       }
+    }
+
+    async function changeFolder() {
+      const raw = browserState.selectedRel;
+      changeFolderErrorEl.style.display = "none";
+      if (!raw && raw !== ".") {
+        changeFolderErrorEl.textContent = "Please select a folder.";
+        changeFolderErrorEl.style.display = "block";
+        return;
+      }
+      const folderPath = raw === "." ? "." : raw;
+      try {
+        const data = await request("/api/change-folder", {
+          method: "POST",
+          body: JSON.stringify({ adrFolder: folderPath }),
+        });
+        applyAdrFolder(data.rootPathDisplay, data.rootPath);
+        changeFolderDialogEl.close();
+        state.selectedPath = "";
+        detailTitleEl.textContent = "No ADR selected";
+        metaLineEl.textContent = "Select an ADR from the table.";
+        previewEl.innerHTML = "";
+        editorEl.value = "";
+        setEditMode(false);
+        await refreshList();
+        setStatus(`Folder changed to ${data.rootPathDisplay}`, "ok");
+      } catch (error) {
+        changeFolderErrorEl.textContent = error.message || "Failed to change folder.";
+        changeFolderErrorEl.style.display = "block";
+      }
+    }
+
+    // ── Folder browser state & rendering ──────────────────────────────────
+    const browserState = {
+      currentRel: ".",   // currently browsed dir (relative to workspace root)
+      selectedRel: null, // the folder the user has clicked to select
+      dirs: [],
+    };
+
+    async function browserNavigate(rel) {
+      browserDirListEl.innerHTML = '<div class="empty-note">Loading…</div>';
+      try {
+        const data = await request(`/api/browse-dirs?rel=${encodeURIComponent(rel || ".")}`);
+        browserState.currentRel = data.rel === "." ? "." : (data.rel || ".");
+        browserState.dirs = data.dirs || [];
+        browserRender();
+      } catch (err) {
+        browserDirListEl.innerHTML = `<div class="empty-note" style="color:#d1242f">${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function browserRender() {
+      // Breadcrumb
+      const parts = browserState.currentRel === "." ? [] : browserState.currentRel.split("/");
+      browserBreadcrumbEl.innerHTML = "";
+
+      const rootBtn = document.createElement("button");
+      rootBtn.type = "button";
+      rootBtn.textContent = "/ (root)";
+      rootBtn.addEventListener("click", () => browserNavigate("."));
+      browserBreadcrumbEl.appendChild(rootBtn);
+
+      parts.forEach((part, i) => {
+        const sep = document.createElement("span");
+        sep.className = "crumb-sep";
+        sep.textContent = "›";
+        browserBreadcrumbEl.appendChild(sep);
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = part;
+        const rel = parts.slice(0, i + 1).join("/");
+        btn.addEventListener("click", () => browserNavigate(rel));
+        browserBreadcrumbEl.appendChild(btn);
+      });
+
+      // Dir list
+      browserDirListEl.innerHTML = "";
+      if (browserState.dirs.length === 0) {
+        const note = document.createElement("div");
+        note.className = "empty-note";
+        note.textContent = "No subdirectories here.";
+        browserDirListEl.appendChild(note);
+      } else {
+        for (const dir of browserState.dirs) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = dir.rel === browserState.selectedRel ? "selected" : "";
+          btn.innerHTML = `<span class="browser-dir-icon">📁</span>${escapeHtml(dir.name)}`;
+
+          // Single click → select
+          btn.addEventListener("click", () => {
+            browserState.selectedRel = dir.rel;
+            browserSelectedValueEl.textContent = dir.rel;
+            browserDirListEl.querySelectorAll("button").forEach((b) => b.classList.remove("selected"));
+            btn.classList.add("selected");
+            changeFolderErrorEl.style.display = "none";
+          });
+
+          // Double click → navigate into
+          btn.addEventListener("dblclick", () => browserNavigate(dir.rel));
+
+          browserDirListEl.appendChild(btn);
+        }
+      }
+
+      // Update selected label
+      browserSelectedValueEl.textContent = browserState.selectedRel || "—";
     }
 
     async function refreshList() {
@@ -871,6 +1171,19 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
     });
 
     rescanButtonEl.addEventListener("click", () => refreshList().catch((error) => setStatus(error.message, "error")));
+    changeFolderButtonEl.addEventListener("click", () => {
+      changeFolderErrorEl.style.display = "none";
+      // Pre-navigate to the currently active folder
+      const startRel = state.adrFolder && state.adrFolder !== "." ? state.adrFolder : ".";
+      browserState.selectedRel = startRel !== "." ? startRel : null;
+      browserSelectedValueEl.textContent = browserState.selectedRel || "—";
+      changeFolderDialogEl.showModal();
+      browserNavigate(startRel);
+    });
+    cancelChangeFolderButtonEl.addEventListener("click", () => changeFolderDialogEl.close());
+    confirmChangeFolderButtonEl.addEventListener("click", () => {
+      changeFolder().catch((error) => setStatus(error.message, "error"));
+    });
     aiButtonEl.addEventListener("click", () => aiDialogEl.showModal());
     generateWorkflowButtonEl.addEventListener("click", () => generateWorkflowFile().catch((error) => setStatus(error.message, "error")));
     closeAiDialogButtonEl.addEventListener("click", () => aiDialogEl.close());
@@ -881,9 +1194,8 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
         method: "POST",
         body: JSON.stringify({ index }),
       }).then((data) => {
-        state.rootPath = data.rootPath;
+        applyAdrFolder(data.rootPathDisplay ?? ".", data.rootPath);
         state.activeRepoIndex = data.activeRepoIndex ?? index;
-        rootPathEl.textContent = data.rootPathDisplay || "docs/adr";
         state.selectedPath = "";
         detailTitleEl.textContent = "No ADR selected";
         metaLineEl.textContent = "Select an ADR from the table.";
@@ -921,7 +1233,7 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
       }
     }
 
-    window.addEventListener("resize", adjustTableViewport);
+    window.addEventListener("resize", () => {});
     init();
   </script>
 </body>
