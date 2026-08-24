@@ -1194,7 +1194,7 @@ Summarize decision history for [topic] citing ADR number and title.`;
         method: "POST",
         body: JSON.stringify({ index }),
       }).then((data) => {
-        applyAdrFolder(data.rootPathDisplay || "docs/adr", data.rootPath);
+        applyAdrFolder(data.rootPathDisplay ?? ".", data.rootPath);
         state.activeRepoIndex = data.activeRepoIndex ?? index;
         state.selectedPath = "";
         detailTitleEl.textContent = "No ADR selected";

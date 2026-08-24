@@ -647,16 +647,15 @@ async function handleApi(req, res, instanceId) {
                 throw new ApiError(400, "Folder must be a relative path (e.g. docs/adr or architecture/decisions).");
             }
 
-            const activeRoot = getActiveRoot(state);
-            const newRootPath = resolveAdrRootPath(activeRoot.workspaceRoot, rawFolder);
-
-            // Ensure it stays inside the workspace
-            const wsNorm = path.resolve(activeRoot.workspaceRoot);
-            if (!newRootPath.startsWith(wsNorm + path.sep) && newRootPath !== wsNorm) {
-                throw new ApiError(400, "Folder must be inside the workspace root.");
+            for (const root of state.roots) {
+                const newRootPath = resolveAdrRootPath(root.workspaceRoot, rawFolder);
+                const wsNorm = path.resolve(root.workspaceRoot);
+                if (!newRootPath.startsWith(wsNorm + path.sep) && newRootPath !== wsNorm) {
+                    throw new ApiError(400, "Folder must be inside the workspace root.");
+                }
+                root.rootPath = newRootPath;
             }
-
-            activeRoot.rootPath = newRootPath;
+            const activeRoot = getActiveRoot(state);
             const prefs = await writePreferences({ adrFolder: rawFolder });
             writeJson(res, 200, {
                 rootPath: activeRoot.rootPath,
