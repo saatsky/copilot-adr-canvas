@@ -252,7 +252,7 @@
       margin: 14px 0 8px;
       line-height: 1.3;
     }
-    #preview p, #preview ul, #preview ol, #preview pre { margin: 0 0 10px; }
+    #preview p, #preview ul, #preview ol, #preview pre, #preview blockquote, #preview table { margin: 0 0 10px; }
     #preview ul, #preview ol { padding-left: 20px; }
     #preview code {
       font-family: var(--font-mono, "SFMono-Regular", Consolas, "Liberation Mono", monospace);
@@ -268,6 +268,24 @@
       overflow: auto;
     }
     #preview pre code { background: transparent; padding: 0; border-radius: 0; }
+    #preview table {
+      width: 100%;
+      border-collapse: collapse;
+      display: block;
+      overflow-x: auto;
+    }
+    #preview th, #preview td {
+      border: 1px solid var(--app-border);
+      padding: 6px 8px;
+      white-space: normal;
+      vertical-align: top;
+    }
+    #preview th {
+      text-transform: none;
+      font-size: 13px;
+      background: var(--app-row-hover);
+      color: var(--app-text);
+    }
 
     dialog {
       border: 1px solid var(--app-border);
@@ -397,6 +415,7 @@
           <option>Rejected</option>
           <option>Deprecated</option>
           <option>Superseded</option>
+          <option>Draft</option>
         </select>
         <button id="clearSearchButton" type="button">Clear Search</button>
       </div>
@@ -459,6 +478,7 @@
           <option>Rejected</option>
           <option>Deprecated</option>
           <option>Superseded</option>
+          <option>Draft</option>
         </select>
         <button id="applyStatusButton" type="button">Update Status</button>
         <span id="statusText" class="status"></span>
@@ -480,10 +500,9 @@
         <option>Rejected</option>
         <option>Deprecated</option>
         <option>Superseded</option>
+        <option>Draft</option>
       </select>
-      <textarea id="newContext" rows="4" placeholder="Context"></textarea>
-      <textarea id="newOptions" rows="3" placeholder="Options (one per line or bullets)"></textarea>
-      <textarea id="newDecision" rows="4" placeholder="Decision"></textarea>
+      <input id="newFolder" placeholder="Target subfolder (relative to ADR folder, optional)">
       <div class="row" style="justify-content: end;">
         <button id="cancelCreateButton" type="button">Cancel</button>
         <button id="createButton" type="submit" class="primary">Create</button>
@@ -496,17 +515,17 @@
       <h3 style="margin: 0;">AI Integration</h3>
       <p>Generate and maintain workflow guidance:</p>
       <div class="row">
-        <button id="generateWorkflowButton" type="button" class="primary">Generate AI_ADR_WORKFLOW.md</button>
+        <button id="generateWorkflowButton" type="button" class="primary">Generate ADR_AI_WORKFLOW.md</button>
       </div>
       <p>Prompt examples (MarkdownADRManager style):</p>
       <pre id="aiDialogPrompts" style="margin:0;padding:10px;border:1px solid var(--app-border);border-radius:6px;overflow:auto;">Create a new ADR for [decision] using:
-- filename ADR-NNNN-title-with-dashes.md
+- filename NNNN-title-with-dashes.md
 - front matter (title, date, status)
-- sections: Status, Context, Options, Decision, Consequences
+- sections: Context, Options, Decision, Consequences
 
 Review docs/adr and suggest which Proposed ADRs should be Accepted, with rationale.
 
-Summarize decision history for [topic] citing ADR number and title.</pre>
+Summarize decision history for [topic] citing NNNN filename and title.</pre>
       <div class="row" style="justify-content: end;">
         <button id="closeAiDialogButton" type="button">Close</button>
       </div>
@@ -577,9 +596,7 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
     const newDialogEl = document.getElementById("newDialog");
     const newTitleEl = document.getElementById("newTitle");
     const newStatusEl = document.getElementById("newStatus");
-    const newContextEl = document.getElementById("newContext");
-    const newOptionsEl = document.getElementById("newOptions");
-    const newDecisionEl = document.getElementById("newDecision");
+    const newFolderEl = document.getElementById("newFolder");
     const cancelCreateButtonEl = document.getElementById("cancelCreateButton");
     const createButtonEl = document.getElementById("createButton");
 
@@ -644,6 +661,16 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
       return normalized.slice(end + 5).replace(/^\n+/, "");
     }
 
+    function isTableSeparatorLine(line) {
+      const trimmed = String(line || "").trim();
+      return /^(\|?\s*:?-{3,}:?\s*)+\|?\s*$/.test(trimmed) && trimmed.includes("-");
+    }
+
+    function parseTableCells(line) {
+      const normalized = String(line || "").trim().replace(/^\|/, "").replace(/\|$/, "");
+      return normalized.split("|").map((cell) => cell.trim());
+    }
+
     function safeHref(url) {
       const value = String(url || "").trim();
       if (
@@ -671,16 +698,30 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
     }
 
     function renderMarkdown(markdown) {
-      const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+      const codeBlocks = [];
+      let source = String(markdown || "").replace(/\r\n/g, "\n");
+      source = source.replace(/```([A-Za-z0-9_-]+)?\n([\s\S]*?)```/g, (_match, lang, code) => {
+        const token = `@@CODEBLOCK_${codeBlocks.length}@@`;
+        codeBlocks.push({ lang: String(lang || ""), code: escapeHtml(code || "") });
+        return token;
+      });
+
+      const lines = source.split("\n");
       const out = [];
-      let inCode = false;
       let inUl = false;
       let inOl = false;
       let paragraph = [];
 
       const flushParagraph = () => {
         if (!paragraph.length) return;
-        out.push(`<p>${renderInline(paragraph.join(" "))}</p>`);
+        let html = "";
+        for (let index = 0; index < paragraph.length; index += 1) {
+          const item = paragraph[index];
+          if (index > 0 && !paragraph[index - 1].br) html += " ";
+          html += renderInline(item.text);
+          if (item.br && index < paragraph.length - 1) html += "<br>";
+        }
+        out.push(`<p>${html}</p>`);
         paragraph = [];
       };
 
@@ -689,28 +730,46 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
         if (inOl) { out.push("</ol>"); inOl = false; }
       };
 
-      for (const raw of lines) {
-        const line = raw;
-
-        if (/^```/.test(line)) {
+      for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        const trimmed = line.trim();
+        const tokenMatch = trimmed.match(/^@@CODEBLOCK_(\d+)@@$/);
+        if (tokenMatch) {
           flushParagraph();
           closeLists();
-          if (!inCode) {
-            inCode = true;
-            out.push("<pre><code>");
-          } else {
-            inCode = false;
-            out.push("</code></pre>");
+          const block = codeBlocks[Number(tokenMatch[1])];
+          const langClass = block.lang ? ` class="language-${escapeHtml(block.lang)}"` : "";
+          out.push(`<pre><code${langClass}>${block.code}</code></pre>`);
+          continue;
+        }
+
+        const nextLine = index + 1 < lines.length ? lines[index + 1] : "";
+        const looksLikeTableHeader = trimmed.includes("|") && isTableSeparatorLine(nextLine);
+        if (looksLikeTableHeader) {
+          flushParagraph();
+          closeLists();
+          const headerCells = parseTableCells(trimmed);
+          out.push(`<table><thead><tr>${headerCells.map((cell) => `<th>${renderInline(cell)}</th>`).join("")}</tr></thead><tbody>`);
+          index += 2;
+          while (index < lines.length) {
+            const rowLine = lines[index].trim();
+            if (!rowLine || !rowLine.includes("|")) {
+              index -= 1;
+              break;
+            }
+            const rowCells = parseTableCells(rowLine);
+            if (rowCells.length < 2) {
+              index -= 1;
+              break;
+            }
+            out.push(`<tr>${rowCells.map((cell) => `<td>${renderInline(cell)}</td>`).join("")}</tr>`);
+            index += 1;
           }
+          out.push("</tbody></table>");
           continue;
         }
 
-        if (inCode) {
-          out.push(`${escapeHtml(line)}\n`);
-          continue;
-        }
-
-        const heading = line.match(/^(#{1,6})\s+(.+)$/);
+        const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
         if (heading) {
           flushParagraph();
           closeLists();
@@ -719,7 +778,15 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
           continue;
         }
 
-        const ul = line.match(/^\s*[-*+]\s+(.+)$/);
+        const quote = trimmed.match(/^>\s?(.+)$/);
+        if (quote) {
+          flushParagraph();
+          closeLists();
+          out.push(`<blockquote><p>${renderInline(quote[1])}</p></blockquote>`);
+          continue;
+        }
+
+        const ul = trimmed.match(/^[-*+]\s+(.+)$/);
         if (ul) {
           flushParagraph();
           if (!inUl) { closeLists(); inUl = true; out.push("<ul>"); }
@@ -727,7 +794,7 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
           continue;
         }
 
-        const ol = line.match(/^\s*\d+\.\s+(.+)$/);
+        const ol = trimmed.match(/^\d+\.\s+(.+)$/);
         if (ol) {
           flushParagraph();
           if (!inOl) { closeLists(); inOl = true; out.push("<ol>"); }
@@ -735,18 +802,17 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
           continue;
         }
 
-        if (line.trim() === "") {
+        if (trimmed === "") {
           flushParagraph();
           closeLists();
           continue;
         }
 
-        paragraph.push(line.trim());
+        paragraph.push({ text: trimmed, br: / {2,}$/.test(line) });
       }
 
       flushParagraph();
       closeLists();
-      if (inCode) out.push("</code></pre>");
       return out.join("");
     }
 
@@ -773,11 +839,12 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
 
     function updateControls() {
       const hasSelection = Boolean(state.selectedPath);
+      const item = getSelectedItem();
       editButtonEl.disabled = !hasSelection || state.isEditing;
       cancelEditButtonEl.disabled = !hasSelection || !state.isEditing;
       saveButtonEl.disabled = !hasSelection || !state.isEditing || !state.dirty;
-      statusSelectEl.disabled = !hasSelection || state.isEditing;
-      applyStatusButtonEl.disabled = !hasSelection || state.isEditing;
+      statusSelectEl.disabled = !hasSelection || state.isEditing || !item?.isAdr;
+      applyStatusButtonEl.disabled = !hasSelection || state.isEditing || !item?.isAdr;
     }
 
     function renderList() {
@@ -786,7 +853,7 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
         const tr = document.createElement("tr");
         tr.className = `row-item ${item.path === state.selectedPath ? "selected" : ""}`.trim();
         tr.innerHTML = `
-          <td>${item.compatible ? "" : '<span class="warn" title="Not adr-tools compatible">⚠</span>'}${escapeHtml(item.name || item.path)}</td>
+          <td>${item.isAdr ? "" : '<span class="warn" title="Non-ADR markdown">⚠</span>'}${escapeHtml(item.name || item.path)}</td>
           <td>${escapeHtml(item.displayTitle || item.title || item.path)}</td>
           <td>${escapeHtml(item.status || "Unknown")}</td>
           <td>${escapeHtml(formatDateTime(item.modified))}</td>
@@ -857,14 +924,14 @@ Summarize decision history for [topic] citing ADR number and title.</pre>
       state.rootPath = rootPath || "";
       rootPathEl.textContent = state.adrFolder;
       if (aiDialogPromptsEl) {
-        aiDialogPromptsEl.textContent = `Create a new ADR for [decision] using:
-- filename ADR-NNNN-title-with-dashes.md
+        aiDialogPromptsEl.textContent = `Create the next ADR for [decision] using ADR_AI_WORKFLOW.md:
+- filename NNNN-title-with-dashes.md
 - front matter (title, date, status)
-- sections: Status, Context, Options, Decision, Consequences
+- sections: Context, Options, Decision, Consequences
 
 Review ${state.adrFolder} and suggest which Proposed ADRs should be Accepted, with rationale.
 
-Summarize decision history for [topic] citing ADR number and title.`;
+Summarize decision history for [topic] citing NNNN filenames and titles.`;
       }
     }
 
@@ -1082,16 +1149,12 @@ Summarize decision history for [topic] citing ADR number and title.`;
         body: JSON.stringify({
           title,
           status: newStatusEl.value,
-          context: newContextEl.value,
-          options: newOptionsEl.value,
-          decision: newDecisionEl.value,
+          folder: newFolderEl.value,
         }),
       });
       newDialogEl.close();
       newTitleEl.value = "";
-      newContextEl.value = "";
-      newOptionsEl.value = "";
-      newDecisionEl.value = "";
+      newFolderEl.value = "";
       await refreshList();
       await openFile(data.path);
       setStatus("ADR created", "ok");

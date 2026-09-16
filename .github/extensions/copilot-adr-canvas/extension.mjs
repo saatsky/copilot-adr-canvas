@@ -59,6 +59,8 @@ function computeHash(content) {
 }
 
 const DEFAULT_ADR_FOLDER = "docs/adr";
+const WORKFLOW_FILENAME = "ADR_AI_WORKFLOW.md";
+const ADR_STATUSES = ["Proposed", "Accepted", "Rejected", "Superseded", "Deprecated", "Draft"];
 
 function resolveAdrRootPath(workingDirectory, adrFolder) {
     const baseDir = String(workingDirectory || process.cwd());
@@ -114,32 +116,44 @@ function resolvePreferencesPath() {
 
 function parseFrontMatter(markdown) {
     const normalized = normalizeNewlines(markdown);
-    if (!normalized.startsWith("---\n")) return { hasFrontMatter: false, metadata: {}, body: normalized };
+    if (!normalized.startsWith("---")) return { hasFrontMatter: false, metadata: {}, body: normalized };
 
-    const end = normalized.indexOf("\n---\n", 4);
-    if (end === -1) return { hasFrontMatter: false, metadata: {}, body: normalized };
+    const match = normalized.match(/^---\n([\s\S]*?)\n---(?:\n|$)([\s\S]*)$/);
+    if (!match) {
+        throw new ApiError(400, "Malformed front matter: opening '---' found without closing delimiter.");
+    }
 
-    const block = normalized.slice(4, end).split("\n");
+    const block = match[1].split("\n");
     const metadata = {};
     for (const line of block) {
-        const separator = line.indexOf(":");
-        if (separator < 1) continue;
-        const key = line.slice(0, separator).trim().toLowerCase();
-        const value = unquote(line.slice(separator + 1));
+        const parsed = line.match(/^\s*([A-Za-z0-9_-]+)\s*:\s*(.*?)\s*$/);
+        if (!parsed) continue;
+        const key = parsed[1].trim().toLowerCase();
+        const value = unquote(parsed[2]);
         if (key) metadata[key] = value;
     }
 
     return {
         hasFrontMatter: true,
         metadata,
-        body: normalized.slice(end + 5),
+        body: match[2] || "",
     };
 }
 
+function toYamlScalar(value) {
+    const raw = String(value ?? "");
+    return `"${raw.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
 function serializeFrontMatter(metadata, body) {
-    const entries = Object.entries(metadata)
-        .filter(([, value]) => value != null && String(value).trim().length > 0)
-        .map(([key, value]) => `${key}: ${String(value).trim()}`);
+    const orderedKeys = ["title", "date", "status"];
+    const otherKeys = Object.keys(metadata || {})
+        .filter((key) => !orderedKeys.includes(key))
+        .sort((a, b) => a.localeCompare(b));
+    const entries = orderedKeys
+        .filter((key) => metadata?.[key] != null && String(metadata[key]).trim().length > 0)
+        .concat(otherKeys)
+        .map((key) => `${key}: ${toYamlScalar(String(metadata[key]).trim())}`);
     return `---\n${entries.join("\n")}\n---\n\n${normalizeNewlines(body).replace(/^\n+/, "")}`;
 }
 
@@ -162,7 +176,7 @@ function extractFilenameInfo(relativePath) {
         stem,
         number: numbered[1],
         titleFromFilename: numbered[2].replace(/[-_]+/g, " ").trim(),
-        adrFilenameCompatible: /^ADR-\d{4}[-_].+\.md$/i.test(basename),
+        adrFilenameCompatible: /^\d{4}-.+\.md$/i.test(basename),
     };
 }
 
@@ -192,6 +206,25 @@ function firstNonEmptyLine(lines = []) {
     return "";
 }
 
+function isLikelyAdrFile(relativePath, basename, title, markdown) {
+    const joinedPath = `${String(relativePath || "")}/${String(basename || "")}`.toLowerCase();
+    const lowerName = String(basename || "").toLowerCase();
+    const lowerTitle = String(title || "").toLowerCase();
+    const text = normalizeNewlines(markdown).replace(/^---\n[\s\S]*?\n---(?:\n)?/, "").toLowerCase();
+
+    if (/(^|[/\\])(adr|adrs)([/\\]|$)/.test(joinedPath)) return true;
+    if (/^adr[-_ ]?\d{1,5}/i.test(basename)) return true;
+    if (/^0*\d{1,5}[-_]/.test(lowerName) && /(decision|architecture|adr)/.test(text)) return true;
+    if (/^adr[-_:\s]?\d{1,5}/.test(lowerTitle)) return true;
+
+    const hasContext = /(^|\n)#{1,6}\s+context\b/m.test(text);
+    const hasDecision = /(^|\n)#{1,6}\s+decision\b/m.test(text);
+    const hasConsequences = /(^|\n)#{1,6}\s+consequences?\b/m.test(text);
+    const hasOptions = /(^|\n)#{1,6}\s+options?\b/m.test(text);
+    const coreSections = Number(hasContext) + Number(hasDecision) + Number(hasConsequences) + Number(hasOptions);
+    return coreSections >= 2;
+}
+
 function analyzeAdr(relativePath, content) {
     const normalized = normalizeNewlines(content);
     const front = parseFrontMatter(normalized);
@@ -199,26 +232,19 @@ function analyzeAdr(relativePath, content) {
     const sourceForSections = front.hasFrontMatter ? front.body : normalized;
     const sections = splitByH2Sections(sourceForSections);
     const h1 =
-        sourceForSections.match(/^#\s+ADR-(\d{4,5})\s*:\s*(.+)\s*$/im) ||
-        sourceForSections.match(/^#\s+(\d+)\.\s+(.+)\s*$/m);
+        sourceForSections.match(/^#\s+(?:ADR-)?(\d{4,5})\s*:\s*(.+)\s*$/im) ||
+        sourceForSections.match(/^#\s+(\d+)\.\s+(.+)\s*$/m) ||
+        sourceForSections.match(/^#\s+(.+?)\s*$/m);
     const dateLine = sourceForSections.match(/^Date:\s*(.+)\s*$/m);
     const sectionStatus = firstNonEmptyLine(sections.status);
-    const hasAdrSections = Boolean(sections.status && sections.context && sections.decision && sections.consequences);
-    const hasAdrToolsSections = Boolean(
-        sections.status &&
-        sections.context &&
-        sections.options &&
-        sections.decision &&
-        sections.consequences
-    );
 
     const title =
         String(front.metadata.title || "").trim() ||
-        String(h1?.[2] || "").trim() ||
+        String(h1?.[2] || h1?.[1] || "").trim() ||
         filename.titleFromFilename ||
         filename.stem;
 
-    const number = String(h1?.[1] || filename.number || "").trim();
+    const number = String((h1?.[2] ? h1?.[1] : "") || filename.number || "").trim();
     const displayTitle = number ? `${number}. ${title}` : title;
 
     const status = String(unquote(front.metadata.status || sectionStatus || "Unknown")).trim();
@@ -226,18 +252,10 @@ function analyzeAdr(relativePath, content) {
 
     const adrToolsCompatible =
         filename.adrFilenameCompatible &&
-        Boolean(h1?.[1]) &&
-        (!filename.number || Number(h1[1]) === Number(filename.number)) &&
-        hasAdrToolsSections &&
-        Boolean(sectionStatus);
+        Boolean(front.metadata.status) &&
+        Boolean(sections.context && sections.options && sections.decision && sections.consequences);
 
-    const isAdr =
-        Boolean(filename.number) ||
-        Boolean(front.metadata.status) ||
-        Boolean(front.metadata.title) ||
-        Boolean(front.metadata.date) ||
-        hasAdrSections ||
-        Boolean(h1?.[1]);
+    const isAdr = isLikelyAdrFile(relativePath, filename.basename, title, normalized);
 
     return {
         normalizedContent: normalized,
@@ -367,52 +385,48 @@ async function createAdr(rootPath, payload = {}) {
     const title = String(payload.title || "").trim();
     if (!title) throw new ApiError(400, "Title is required.");
     const status = String(payload.status || "Proposed").trim();
-    const context = String(payload.context || "").trim();
-    const options = String(payload.options || "").trim();
-    const decision = String(payload.decision || "").trim();
+    if (!ADR_STATUSES.includes(status)) throw new ApiError(400, "Invalid ADR status value.");
+    const folder = String(payload.folder || "").trim();
+    const targetRoot = folder ? ensureUnderRoot(rootPath, folder) : rootPath;
 
-    await mkdir(rootPath, { recursive: true });
-    const files = await listMarkdownFiles(rootPath);
+    await mkdir(targetRoot, { recursive: true });
+    const files = await listMarkdownFiles(targetRoot);
     const maxNumber = files.reduce((max, absolute) => {
-        const match = path.basename(absolute).match(/^(?:ADR-)?(\d{4,5})[-_]/i);
+        const match = path.basename(absolute).match(/^(\d{4})-/i);
         const number = match ? Number(match[1]) : 0;
         return Number.isFinite(number) && number > max ? number : max;
     }, 0);
 
     const nextNumber = String(maxNumber + 1).padStart(4, "0");
     const fileSlug = slugify(title) || "untitled-adr";
-    const relativePath = `ADR-${nextNumber}-${fileSlug}.md`;
+    const relativePath = folder ? path.join(folder, `${nextNumber}-${fileSlug}.md`) : `${nextNumber}-${fileSlug}.md`;
     const absolutePath = ensureUnderRoot(rootPath, relativePath);
 
-    const fullTitle = `ADR-${nextNumber}: ${title}`;
     const content = normalizeNewlines(`---
-title: "${fullTitle}"
-date: "${toISODate()}"
-status: "${status}"
+title: ${toYamlScalar(title)}
+date: ${toYamlScalar(toISODate())}
+status: ${toYamlScalar(status)}
 ---
 
-# ${fullTitle}
-
-## Status
-
-${status}
+# ${title}
 
 ## Context
 
-${context || "Describe the problem and constraints."}
+Describe constraints and forces.
 
 ## Options
 
-${options || "- Option A\\n- Option B"}
+- Option A
+- Option B
 
 ## Decision
 
-${decision || "Describe the selected option and rationale."}
+State the chosen option and rationale.
 
 ## Consequences
 
-- Positive:
-- Negative:
+- Positive outcomes
+- Trade-offs
 `);
 
     await writeFile(absolutePath, content, "utf8");
@@ -446,10 +460,14 @@ async function updateAdrStatus(rootPath, relativePath, status, expectedHash) {
             front.body
         );
     } else {
-        updatedContent = updateAdrToolsStatus(existingContent, nextStatus);
-        if (!updatedContent) {
-            throw new ApiError(400, "Could not locate a '## Status' section in this ADR.");
-        }
+        updatedContent = serializeFrontMatter(
+            {
+                title: analyzeAdr(relativePath, existingContent).title,
+                date: toISODate(),
+                status: nextStatus,
+            },
+            existingContent
+        );
     }
 
     await writeFile(absolutePath, updatedContent, "utf8");
@@ -493,44 +511,50 @@ async function buildWorkflowInventory(rootPath) {
     const rows = items
         .filter((item) => item.number)
         .sort((a, b) => Number(a.number) - Number(b.number))
-        .map((item) => `| ${item.number} | ${item.title} | ${item.status || "Unknown"} | ${item.date || ""} |`);
+        .map((item) => `| ${escapeTableCell(item.number)} | \`${escapeTableCell(item.path)}\` | ${escapeTableCell(item.title || item.name)} | ${escapeTableCell(item.status || "Unknown")} | ${escapeTableCell(item.date || "-")} |`);
     const tableHeader = [
-        "| # | Title | Status | Date |",
-        "|---|-------|--------|------|",
+        "| # | File | Title | Status | Date |",
+        "|---|---|---|---|---|",
     ];
-    return [...tableHeader, ...rows].join("\n");
+    return [...tableHeader, ...(rows.length ? rows : ["| - | - | No ADRs found | - | - |"])].join("\n");
+}
+
+function escapeTableCell(value) {
+    return String(value ?? "").replace(/\|/g, "\\|");
 }
 
 async function generateAiAdrWorkflow(rootPath, workspaceRoot) {
     await mkdir(rootPath, { recursive: true });
     const inventoryTable = await buildWorkflowInventory(rootPath);
     const adrFolder = path.relative(workspaceRoot, rootPath).split(path.sep).join("/") || DEFAULT_ADR_FOLDER;
-    const content = normalizeNewlines(`# ADR AI Workflow
+    const adrFolderDisplay = adrFolder === "." ? "." : `${adrFolder.replace(/\/+$/, "")}/`;
+    const content = normalizeNewlines(`---
+status: "Accepted"
+---
 
-> Auto-generated by Markdown Copilot ADR Canvas. You can edit this file; the inventory section is auto-refreshed.
+# ADR AI Workflow
+
+> Auto-generated for Markdown Copilot ADR Canvas on ${toISODate()}.
+> Read this file before creating, updating, or reviewing ADRs.
 
 ## Conventions
-- **ADR folder:** \`${adrFolder}\`
-- **Filename pattern:** \`ADR-NNNN-title-with-dashes.md (4-digit zero-padded)\`
-- **Front matter fields:** \`title, date (YYYY-MM-DD), status\`
-- **Status lifecycle:** \`Proposed -> Accepted -> Deprecated / Superseded / Rejected\`
-- **Numbering rule:** \`use next max number + 1; never renumber existing ADRs\`
-- **Template:** Nygard (\`## Context\` → \`## Options\` → \`## Decision\` → \`## Consequences\`)
+
+- **Recommended ADR folder:** \`${adrFolderDisplay}\`. Each project may choose and document its own ADR folder; this recommendation is not mandatory.
+- **Filename pattern:** \`NNNN-title-with-dashes.md\` (4-digit zero-padded). Titles may include \`ADR\` or any other naming the project or user chooses; an \`ADR-\` prefix is not required.
+- **Front matter fields:** \`title\`, \`date\` (YYYY-MM-DD), \`status\`
+- **Status lifecycle:** \`Proposed\` → \`Accepted\` → \`Deprecated\` / \`Superseded\` / \`Rejected\`
+- **Numbering:** use the next max number + 1; never renumber existing ADRs.
 
 ## Nygard Template (example)
 
 \`\`\`markdown
 ---
-title: "ADR-0000: Decision title"
-date: "YYYY-MM-DD"
-status: "Proposed"
+title: <Decision title>
+date: YYYY-MM-DD
+status: Accepted
 ---
 
-# ADR-NNNN: Decision title
-
-## Status
-
-Proposed
+# <Decision title>
 
 ## Context
 
@@ -551,36 +575,41 @@ Proposed
 
 ## Consequences
 
-- Describe outcomes
-- trade-offs
-- follow-up implications.
+<Describe outcomes, trade-offs, and follow-up implications.>
 \`\`\`
 
-## AI prompt examples
-1. "Create a new ADR about [decision] using ADR-NNNN filename convention and the Nygard template."
-2. "Review ${adrFolder} and suggest which Proposed ADRs should be Accepted, with rationale."
-3. "Summarize decision history for [topic] using ADR number, title, status, and consequences."
-4. "Check ADRs for missing Options or weak Consequences and suggest improvements."
+Do not add a \`## Status\` section; status remains in YAML front matter.
 
-## What AI should do
-1. Create ADRs with the template and naming convention above.
-2. Review ADRs for missing context, weak options, and unclear consequences.
-3. Reference ADR number and title when answering decision-history questions.
-4. Never update ADR status without explicit user instruction.
-5. Preserve existing ADR content unless the user asks to refactor or rewrite.
-6. Keep ADRs concise, technical, and decision-oriented.
-7. Reference ADR IDs in related implementation notes/commits when possible (\`ADR-000X\`).
+## Lifecycle Guidance
 
-## Current ADRs
+- New ADRs default to \`Proposed\` unless the user explicitly requests another status.
+- Never update an ADR status without explicit user instruction.
+- Lifecycle changes modify only the front matter \`status\`; preserve existing ADR content unless the user asks for other changes.
+
+## Prompt Examples
+
+1. Create the next ADR in the recommended folder (\`${adrFolderDisplay}\`) for [decision], using the next max number + 1 and the Nygard template.
+2. Review \`NNNN-title-with-dashes.md\` for missing sections, weak rationale, and unclear consequences; suggest improvements without changing the file.
+3. Change the status of \`NNNN-title-with-dashes.md\` to \`Superseded\` and update only its front matter status.
+4. Use the ADR inventory and existing ADR content to explain the decision history for [topic], citing the relevant NNNN filenames and titles.
+
+## What AI Should Do
+
+1. Create ADRs with the Nygard section structure and filename convention above.
+2. Review ADRs for missing context, weak options, unclear decisions, and consequences.
+3. Use the inventory and ADR contents to answer decision-history questions, citing relevant filenames and titles.
+4. Preserve existing content and never make lifecycle or other edits without explicit user instruction.
+
+## Current ADR Inventory
 
 <!-- ADR_INVENTORY_START -->
 ${inventoryTable}
 <!-- ADR_INVENTORY_END -->
 `);
-    const filePath = path.join(workspaceRoot, "AI_ADR_WORKFLOW.md");
+    const filePath = path.join(workspaceRoot, WORKFLOW_FILENAME);
     await writeFile(filePath, content, "utf8");
     return {
-        path: "AI_ADR_WORKFLOW.md",
+        path: WORKFLOW_FILENAME,
         absolutePath: filePath,
     };
 }
@@ -821,15 +850,13 @@ const canvas = createCanvas({
         },
         {
             name: "create_adr",
-            description: "Create a new adr-tools compatible markdown ADR file.",
+            description: "Create a new markdown ADR file using NNNN-title-with-dashes.md and front matter status.",
             inputSchema: {
                 type: "object",
                 properties: {
                     title: { type: "string" },
                     status: { type: "string" },
-                    context: { type: "string" },
-                    options: { type: "string" },
-                    decision: { type: "string" },
+                    folder: { type: "string" },
                 },
                 required: ["title"],
             },

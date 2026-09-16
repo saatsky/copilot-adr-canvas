@@ -6,10 +6,10 @@ A GitHub Copilot canvas extension to browse, create, edit, and manage Architectu
 
 - ADR list with search and status filters
 - ADR preview + in-place markdown editing
-- ADR creation using an ADR template (`ADR-NNNN-title.md`)
+- ADR creation using an ADR template (`NNNN-title-with-dashes.md`)
 - ADR status lifecycle updates
-- AI workflow file generation (`AI_ADR_WORKFLOW.md`)
-- Optional display of non-ADR markdown files inside `docs/adr`
+- AI workflow file generation (`ADR_AI_WORKFLOW.md`)
+- Optional display of non-ADR markdown files inside the configured ADR folder
 
 ## Repository layout
 
@@ -18,7 +18,7 @@ A GitHub Copilot canvas extension to browse, create, edit, and manage Architectu
   copilot-extension.json
   extension.mjs
   web/index.html
-AI_ADR_WORKFLOW.md
+ADR_AI_WORKFLOW.md
 ```
 
 ## How to use
@@ -32,7 +32,7 @@ AI_ADR_WORKFLOW.md
    - Edit and save markdown
    - Create a new ADR
    - Update lifecycle status
-   - Generate `AI_ADR_WORKFLOW.md` from **AI Integration**
+   - Generate `ADR_AI_WORKFLOW.md` from **AI Integration**
 
 ## Deploy on GitHub Copilot App
 
@@ -68,3 +68,4 @@ For user/session scope, `extension.mjs` must be at the extension folder root. Do
 
 - The ADR folder is configurable from the canvas (**Change Folder**) and persisted in preferences.
 - Preference state is stored in `copilot-adr-canvas-preferences.json` at workspace root.
+- New ADRs use `NNNN-title-with-dashes.md`, store lifecycle status in YAML front matter, and do not add a separate `## Status` section.
