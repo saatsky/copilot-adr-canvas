@@ -1,5 +1,5 @@
 ---
-title: "Standardize AI ADR workflow template"
+title: "ADR Standardize AI ADR workflow template"
 date: "2026-08-24"
 status: "Accepted"
 ---
