@@ -655,16 +655,16 @@ async function handleApi(req, res, instanceId) {
             // Param: rel (relative path from workspace root, default ".")
             const rel = String(url.searchParams.get("rel") || ".").trim() || ".";
             const activeRoot = getActiveRoot(state);
-            const absDir = path.isAbsolute(rel)
+            let absDir = path.isAbsolute(rel)
                 ? null
                 : path.resolve(activeRoot.workspaceRoot, rel);
             const wsNorm = path.resolve(activeRoot.workspaceRoot);
             if (!absDir || (absDir !== wsNorm && !absDir.startsWith(wsNorm + path.sep))) {
                 throw new ApiError(400, "Path is outside the workspace.");
             }
-            if (!existsSync(absDir)) {
-                writeJson(res, 200, { rel: rel === "." ? "" : rel, dirs: [] });
-                return;
+            // Fall back to the nearest existing parent so a missing folder (e.g. default docs/adr) still opens somewhere browsable.
+            while (absDir !== wsNorm && !existsSync(absDir)) {
+                absDir = path.dirname(absDir);
             }
             const entries = await readdir(absDir, { withFileTypes: true });
             const dirs = entries
