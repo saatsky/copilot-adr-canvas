@@ -11,6 +11,7 @@ const webIndexPath = path.join(__dirname, "web", "index.html");
 const servers = new Map();
 const instances = new Map();
 let runtimeSession = null;
+let preferencesWriteQueue = Promise.resolve();
 
 class ApiError extends Error {
     constructor(statusCode, message) {
@@ -492,18 +493,22 @@ async function readPreferences() {
     }
 }
 
-async function writePreferences(nextPreferences) {
-    const preferencesPath = resolvePreferencesPath();
-    const current = await readPreferences();
-    const merged = {
-        search: String(nextPreferences.search ?? current.search ?? ""),
-        statusFilter: String(nextPreferences.statusFilter ?? current.statusFilter ?? ""),
-        theme: String(nextPreferences.theme ?? current.theme ?? "auto"),
-        includeNonAdr: Boolean(nextPreferences.includeNonAdr ?? current.includeNonAdr ?? false),
-        adrFolder: String(nextPreferences.adrFolder ?? current.adrFolder ?? DEFAULT_ADR_FOLDER),
-    };
-    await writeFile(preferencesPath, JSON.stringify(merged, null, 2), "utf8");
-    return merged;
+function writePreferences(nextPreferences) {
+    const write = preferencesWriteQueue.then(async () => {
+        const preferencesPath = resolvePreferencesPath();
+        const current = await readPreferences();
+        const merged = {
+            search: String(nextPreferences.search ?? current.search ?? ""),
+            statusFilter: String(nextPreferences.statusFilter ?? current.statusFilter ?? ""),
+            theme: String(nextPreferences.theme ?? current.theme ?? "auto"),
+            includeNonAdr: Boolean(nextPreferences.includeNonAdr ?? current.includeNonAdr ?? false),
+            adrFolder: String(nextPreferences.adrFolder ?? current.adrFolder ?? DEFAULT_ADR_FOLDER),
+        };
+        await writeFile(preferencesPath, JSON.stringify(merged, null, 2), "utf8");
+        return merged;
+    });
+    preferencesWriteQueue = write.catch(() => {});
+    return write;
 }
 
 async function buildWorkflowInventory(rootPath) {

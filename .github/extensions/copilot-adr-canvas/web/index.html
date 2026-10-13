@@ -920,8 +920,8 @@ Summarize decision history for [topic] citing NNNN filename and title.</pre>
     }());
 
     function applyAdrFolder(folder, rootPath) {
-      state.adrFolder = folder || "docs/adr";
-      state.rootPath = rootPath || "";
+      state.adrFolder = folder ?? state.adrFolder ?? "docs/adr";
+      state.rootPath = rootPath ?? state.rootPath;
       rootPathEl.textContent = state.adrFolder;
       if (aiDialogPromptsEl) {
         aiDialogPromptsEl.textContent = `Create the next ADR for [decision] using ADR_AI_WORKFLOW.md:
@@ -937,7 +937,7 @@ Summarize decision history for [topic] citing NNNN filenames and titles.`;
 
     async function loadState() {
       const data = await request("/api/state");
-      applyAdrFolder(data.rootPathDisplay || data.preferences?.adrFolder || "docs/adr", data.rootPath);
+      applyAdrFolder(data.rootPathDisplay ?? data.preferences?.adrFolder ?? "docs/adr", data.rootPath);
       searchEl.value = String(data.preferences?.search || "");
       statusFilterEl.value = String(data.preferences?.statusFilter || "");
       state.theme = String(data.preferences?.theme || "auto");
@@ -975,7 +975,7 @@ Summarize decision history for [topic] citing NNNN filenames and titles.`;
           method: "POST",
           body: JSON.stringify({ adrFolder: folderPath }),
         });
-        applyAdrFolder(data.rootPathDisplay, data.rootPath);
+        applyAdrFolder(data.rootPathDisplay ?? folderPath, data.rootPath);
         changeFolderDialogEl.close();
         state.selectedPath = "";
         detailTitleEl.textContent = "No ADR selected";
@@ -984,7 +984,7 @@ Summarize decision history for [topic] citing NNNN filenames and titles.`;
         editorEl.value = "";
         setEditMode(false);
         await refreshList();
-        setStatus(`Folder changed to ${data.rootPathDisplay}`, "ok");
+        setStatus(`Folder changed to ${state.adrFolder}`, "ok");
       } catch (error) {
         changeFolderErrorEl.textContent = error.message || "Failed to change folder.";
         changeFolderErrorEl.style.display = "block";
@@ -1003,6 +1003,7 @@ Summarize decision history for [topic] citing NNNN filenames and titles.`;
       try {
         const data = await request(`/api/browse-dirs?rel=${encodeURIComponent(rel || ".")}`);
         browserState.currentRel = data.rel === "." ? "." : (data.rel || ".");
+        browserState.selectedRel = browserState.currentRel;
         browserState.dirs = data.dirs || [];
         browserRender();
       } catch (err) {
